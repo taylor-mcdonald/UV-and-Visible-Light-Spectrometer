@@ -4,27 +4,43 @@ Devices:  ESP32-C3 - Bluetooth and WiFi enabled microcontroller
           GPIO5 = SCL
 
           GPIO7 = DS18B20 One Wire
-
-
-          AS7331 Spectral UV Sensor - I2C Comm. 
-            https://github.com/sparkfun/SparkFun_AS7331_Arduino_Library 
-
-
-
-          OLED I2C IIC Display #1 - I2C Comm
-          Address = 0x3C
-          Resolution = 128 x 64
-
-          OLED I2C IIC Display #2 - I2C Comm
-          Address = ???
-          Resolution = 128 x 32
-
           DS18B20 - Temp Sensor
 
-          Battery charging/monitoring hardware TBD
+          AS7331 Spectral UV Sensor (Sparkfun breakout board) - I2C Comm. 
+            https://github.com/sparkfun/SparkFun_AS7331_Arduino_Library 
+            I2C Address = 0x74 (default but is adjustable)
+
+          AS7341 10-Channel Light and Color Sensor (DEV BOARD) - I2C Comm
+            https://www.amazon.com/dp/B0DBQKDV67?ref=ppx_yo2ov_dt_b_fed_asin_title
+            This DEV board can supposedly tolerate 3.3V and 5V I2C signals due to it's on-board voltage regulator.
+            This build connects the AS7341's VIN pin to the 3.3V pin on the ESP32-C3 and uses 3.3V I2C signals.
+            I2C Address = 0x39
+            https://github.com/adafruit/Adafruit_AS7341
+          
+          AHT21 Temp and Humidity Sensor - I2C Comm
+            I2C Address = 
+
+          OLED I2C IIC Display #1 - I2C Comm
+            Address = 0x3C
+            Resolution = 128 x 64
+            SSD1306 Display Driver          
+
+          Battery charging/monitoring hardware
+            A 18650 and a a 3.7V/4.2V to 5V/9V 2A Adjustable Boost Converter Module, adjusted to 5V output.
+            (this should probably re-evaluated to a something that just outputs 3.3V, but it is what was available)
 
 Project description:  
 Obtain UV-A, UV-B, and UV-C readings from the AS7331 via I2C.
+Obtain Visible spectrum readings from the AS7341 via I2C.
+Obtain Temp and Humidity readings from the AHT21
+Obtain Temp readings from the DS18B20
+
+Display all of this information on the OLED screen.
+Use the FWD/BACK buttons to change what info is displayed
+
+FUTURE PROJECT GOALS:
+1. Switch the AHT21 for the BME680.  Possibly remove the DS18B20 too.
+2. Enable bluetooth connectivity to an android app and send all data there.
 
           
 */
@@ -36,10 +52,14 @@ Obtain UV-A, UV-B, and UV-C readings from the AS7331 via I2C.
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_AHTX0.h> // Include the Adafruit AHTX0 library for AHT21
+#include <Adafruit_AS7341.h> // Include the Adafruit AS7341 library
+
+
 
 DS18B20 ds(7);  //The DS18B20 is on GPIO7
 Adafruit_AHTX0 aht; // Create an instance of the AHTX0 sensor object
 SfeAS7331ArdI2C uvSensor; // Create an instance of the sensor class
+Adafruit_AS7341 as7341; // Create an instance of the AS7341 sensor object
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
@@ -74,6 +94,7 @@ volatile bool AHT21sensorReadFlag = false;
 volatile bool DS18B20sensorReadFlag = false;
 volatile bool FWD_buttonReadFlag = false;
 volatile bool BK_buttonReadFlag = false;
+volatile bool AS7341sensorReadFlag = false;
 
 // ====== TIMER HANDLES ======
 hw_timer_t *screenTimer = NULL;
@@ -86,7 +107,8 @@ void IRAM_ATTR onScreenTimer() {
 }
 
 void IRAM_ATTR onUVSensorReady() {
-  UVsensorReadFlag = true;     // set flag for sensor task
+  UVsensorReadFlag = true; // set flag for AS7331 sensor task
+  AS7341sensorReadFlag = true; // set flag for AS7341 sensor task
 }
 
 void IRAM_ATTR onFWD_button_detect() {
@@ -124,6 +146,21 @@ struct UVReading {
   unsigned long UV_timestamp;
 };
 
+struct AS7341Reading {
+  uint16_t F1;	// 415nm -> Violet
+  uint16_t F2;	// 445nm -> Indigo-Blue
+  uint16_t F3;  // 480nm -> Blue
+  uint16_t F4;	// 515nm -> Green
+  uint16_t F5;  // 555nm -> Yellow-Green
+  uint16_t F6;  // 590nm -> Yellow-Orange
+  uint16_t F7;  // 630nm -> Red
+  uint16_t F8;  // 680nm -> more Red
+  uint16_t NIR; // Near Infrared
+  uint16_t Clr; // Clear Channel	
+  uint16_t FLKR;// Flicker Detection	
+  unsigned long AS7341_timestamp;
+};
+
 struct AHT21Reading {
   float temp;
   float humid;
@@ -135,20 +172,26 @@ struct DS18Reading {
   unsigned long DS_timestamp;
 };
 
-
 //  Index to define which screen is to be drawn on the display
 //  0 - UV Raw Data
 //  1 - UV Index
 //  2 - AHT21 Data
 //  3 - DS18B20 Data
+//  4 - AS7341 Data (visible spectrum)
+//  5 - Bar Chart of AS7341 and UV Index
 volatile int ScreenDisplay;
-#define NumOfScreens 4
+#define NumOfScreens 6
 
+// Create a rotating history of all sensor readings
 #define UVHISTORY_SIZE 120
 UVReading UVhistory[UVHISTORY_SIZE];
 int UVhistoryIndex = 0;
 UVReading UV_latest;
 
+#define AS7341_HISTORY_SIZE 120
+AS7341Reading AS7341_history[AS7341_HISTORY_SIZE];
+int AS7341_historyIndex = 0;
+AS7341Reading AS7341_latest;
 
 #define AHTHISTORY_SIZE 120
 AHT21Reading AHThistory[AHTHISTORY_SIZE];
@@ -165,12 +208,14 @@ void screenTask(void *pvParameters);
 void FWD_buttonTask(void *pvParameters);
 void BK_buttonTask(void *pvParameters);
 void UVsensorTask(void *pvParameters);
+void AS7341sensorTask(void *pvParameters);
 void AHT21sensorTask(void *pvParameters);
 void DS18B20sensorTask(void *pvParameters);
 void addUVReading(float uva, float uvb, float uvc);
 float calculateUVIndex(float uva, float uvb);
 void addAHT21Reading(float hmd, float tmp);
 void addDS18Reading(float tmp);
+void addAS7341Reading(uint16_t F1, uint16_t F2, uint16_t F3, uint16_t F4, uint16_t F5, uint16_t F6, uint16_t F7, uint16_t F8, uint16_t NIR, uint16_t Clr, uint16_t FLKR);
 void printLatestUV();
 void printLatestAHT();
 void printLatestDS18();
@@ -259,7 +304,7 @@ void setup() {
           ;
   }
 
-  Serial.println("Sensor began.");
+  Serial.println("AS7331 UV Sensor began.");
 
   // Set the delay between measurements so that the processor can read out the
   // results without interfering with the ADC.
@@ -280,6 +325,8 @@ void setup() {
   //     while (1)
   //         ;
   // }
+
+
   // Set measurement mode and change device operating mode to measure.
   if (uvSensor.prepareMeasurement(MEAS_MODE_CMD) == false) {
     Serial.println("Sensor did not get set properly.");
@@ -287,7 +334,7 @@ void setup() {
     while (1);
     }
 
-    Serial.println("Set mode to command.");
+  Serial.println("Set mode to command.");
 
   Serial.println("Set mode to continuous. Starting measurement...");
 
@@ -301,6 +348,17 @@ void setup() {
   display.display();
   delay(1000);
   // //***********************************************************************************//
+  
+
+  // // Adafruit AS7341 Sensor Initialization *******************************************//
+  if (!as7341.begin()){
+    Serial.println("Could not find AS7341");
+    while (1) { delay(10); }
+  }
+
+  as7341.setATIME(100); // 100ms integration time
+  as7341.setASTEP(999); // sets the integration time to 100ms
+  as7341.setGain(AS7341_GAIN_256X); // set a high gain
 
 
   // // Attempt to initialize the AHT21 sensor and set read interupt timer*****************************************//
@@ -351,6 +409,7 @@ void setup() {
   xTaskCreatePinnedToCore(FWD_buttonTask, "Forward Button Task", 4096, NULL, 1, NULL, 0);
   xTaskCreatePinnedToCore(BK_buttonTask, "Back Button Task", 4096, NULL, 1, NULL, 0);
   xTaskCreatePinnedToCore(DS18B20sensorTask, "DS18 Sensor Task", 4096, NULL, 1, NULL, 0);
+  xTaskCreatePinnedToCore(AS7341sensorTask, "AS7341 Sensor Task", 4096, NULL, 1, NULL, 0);
 }
 
 void loop() {
@@ -370,7 +429,7 @@ void screenTask(void *pvParameters) {
     
       switch(ScreenDisplay) {
         // UV Raw Data Screen
-        case 0:
+        case 0: {
           UV_latest = UVhistory[(UVhistoryIndex - 1 + UVHISTORY_SIZE) % UVHISTORY_SIZE];
           Serial.print("UVA:");
           Serial.print(UV_latest.uva);
@@ -401,9 +460,10 @@ void screenTask(void *pvParameters) {
           display.print(UV_latest.uvc);
           //display.print("µW/cm²");
           break;
-
+        };
+        
         // UV Index Screen
-        case 1:
+        case 1: {
           UV_latest = UVhistory[(UVhistoryIndex - 1 + UVHISTORY_SIZE) % UVHISTORY_SIZE];
           display.setCursor(0, 10);
           display.setTextSize(1);
@@ -412,9 +472,10 @@ void screenTask(void *pvParameters) {
           display.setTextSize(2);
           display.print(UV_latest.uvIndex);
           break;
+        };
 
         // AHT21 Data Screen
-        case 2:
+        case 2: {
           AHT_latest = AHThistory[(AHThistoryIndex - 1 + AHTHISTORY_SIZE) % AHTHISTORY_SIZE];
           // Print temperature data
           Serial.print("Temperature: ");
@@ -448,9 +509,10 @@ void screenTask(void *pvParameters) {
           display.setTextSize(2);
           display.print("AHT21");
           break;
+        };
 
         // DS18B20 Screen
-        case 3:
+        case 3: {
           // Display DS18B20 Reading on the OLED Display
           // Thermometer Icon
           DS_latest = DS18history[(DS18historyIndex - 1 + DS18HISTORY_SIZE) % DS18HISTORY_SIZE];
@@ -464,6 +526,81 @@ void screenTask(void *pvParameters) {
           //display.setTextSize(1);
           display.print("DS18B20"); 
           break;
+        };
+        case 4: {
+          // Display AS7341 Reading on the OLED Display
+          AS7341_latest = AS7341_history[(AS7341_historyIndex - 1 + AS7341_HISTORY_SIZE) % AS7341_HISTORY_SIZE];
+          display.setCursor(0, 0);
+          display.setTextSize(1);
+          display.print("AS7341 F1-F8:");
+          display.setCursor(0, 10);
+          display.print(AS7341_latest.F1); display.print(", ");
+          display.print(AS7341_latest.F2); display.print(", ");
+          display.print(AS7341_latest.F3); display.print(", ");
+          display.print(AS7341_latest.F4);
+          display.setCursor(0, 20);
+          display.print(AS7341_latest.F5); display.print(", ");
+          display.print(AS7341_latest.F6); display.print(", ");
+          display.print(AS7341_latest.F7); display.print(", ");
+          display.print(AS7341_latest.F8);
+          display.setCursor(0, 30);
+          display.print("NIR:"); display.print(AS7341_latest.NIR);
+          display.setCursor(64, 30);
+          display.print("CLR:"); display.print(AS7341_latest.Clr);
+          display.setCursor(0, 40);
+          display.print("FLKR:"); display.print(AS7341_latest.FLKR);
+          break;
+        };
+        case 5: {
+          // Display AS7341 Bar Chart on the OLED Display
+          AS7341_latest = AS7341_history[(AS7341_historyIndex - 1 + AS7341_HISTORY_SIZE) % AS7341_HISTORY_SIZE];
+          UV_latest = UVhistory[(UVhistoryIndex - 1 + UVHISTORY_SIZE) % UVHISTORY_SIZE];
+          
+          // --- Chart layout ---
+          const int chartHeight = 40;   // pixels tall
+          const int chartY = SCREEN_HEIGHT - 1;  
+          const int barWidth = 8;       // each AS7341 channel bar width
+          const int spacing = 2;        // gap between bars
+
+          // Normalize AS7341 values
+          uint16_t maxVal = 1;
+          uint16_t channels[8] = {
+            AS7341_latest.F1, AS7341_latest.F2, AS7341_latest.F3, AS7341_latest.F4,
+            AS7341_latest.F5, AS7341_latest.F6, AS7341_latest.F7, AS7341_latest.F8
+          };
+
+          for (int i = 0; i < 8; i++) {
+            if (channels[i] > maxVal) maxVal = channels[i];
+          }
+
+          // Draw AS7341 bars
+          for (int i = 0; i < 8; i++) {
+            int barHeight = map(channels[i], 0, maxVal, 0, chartHeight);
+            int x = i * (barWidth + spacing);
+            display.fillRect(x, chartY - barHeight, barWidth, barHeight, SSD1306_WHITE);
+          }
+
+          // --- UV bars (3 bars, drawn on the right side) ---
+          float uvVals[3] = {UV_latest.uva, UV_latest.uvb, UV_latest.uvc};
+          float maxUV = 1.0;
+          for (int i = 0; i < 3; i++) {
+            if (uvVals[i] > maxUV) maxUV = uvVals[i];
+          }
+
+          for (int i = 0; i < 3; i++) {
+            int barHeight = map(uvVals[i], 0, maxUV, 0, chartHeight);
+            int x = 80 + i * (barWidth + spacing);
+            display.fillRect(x, chartY - barHeight, barWidth, barHeight, SSD1306_WHITE);
+          }
+
+          // --- Labels ---
+          display.setTextSize(1);
+          display.setTextColor(SSD1306_WHITE);
+          display.setCursor(0,0);
+          display.print("AS7341 + AS7331 UV");
+
+          break;
+        };
         default:
           break;
       }
@@ -527,6 +664,38 @@ void UVsensorTask(void *pvParameters) {
   }
 }
 
+void AS7341sensorTask(void *pvParameters) {
+  for (;;) {
+    if (AS7341sensorReadFlag) {
+      AS7341sensorReadFlag = false;
+
+       // Read all channels at the same time and store in as7341 object
+      if (!as7341.readAllChannels()){
+        Serial.println("Error reading all channels!");
+        return;
+      }
+
+      // --- Read AS7341 sensor here ---
+      uint16_t F1 = as7341.getChannel(AS7341_CHANNEL_415nm_F1);
+      uint16_t F2 = as7341.getChannel(AS7341_CHANNEL_445nm_F2);
+      uint16_t F3 = as7341.getChannel(AS7341_CHANNEL_480nm_F3);
+      uint16_t F4 = as7341.getChannel(AS7341_CHANNEL_515nm_F4);
+      uint16_t F5 = as7341.getChannel(AS7341_CHANNEL_555nm_F5);
+      uint16_t F6 = as7341.getChannel(AS7341_CHANNEL_590nm_F6);
+      uint16_t F7 = as7341.getChannel(AS7341_CHANNEL_630nm_F7);
+      uint16_t F8 = as7341.getChannel(AS7341_CHANNEL_680nm_F8);
+      uint16_t NIR = as7341.getChannel(AS7341_CHANNEL_NIR);
+      uint16_t Clr = as7341.getChannel(AS7341_CHANNEL_CLEAR);
+      uint16_t FLKR = as7341.detectFlickerHz();
+
+      addAS7341Reading(F1, F2, F3, F4, F5, F6, F7, F8, NIR, Clr, FLKR);
+
+      Serial.println("AS7341 data read and stored");
+    }
+    vTaskDelay(pdMS_TO_TICKS(SENSOR_TASK_DELAY)); // avoid busy loop
+  }
+}
+
 void AHT21sensorTask(void *pvParameters) {
   for (;;) {
     if (AHT21sensorReadFlag) {
@@ -576,6 +745,25 @@ void addUVReading(float uva, float uvb, float uvc) {
   UVhistoryIndex = (UVhistoryIndex + 1) % UVHISTORY_SIZE;
 }
 
+void addAS7341Reading(uint16_t F1, uint16_t F2, uint16_t F3, uint16_t F4, uint16_t F5, uint16_t F6, uint16_t F7, uint16_t F8, uint16_t NIR, uint16_t Clr, uint16_t FLKR) {
+  AS7341Reading r;
+  r.F1 = F1;
+  r.F2 = F2;
+  r.F3 = F3;
+  r.F4 = F4;
+  r.F5 = F5;
+  r.F6 = F6;
+  r.F7 = F7;
+  r.F8 = F8;
+  r.NIR = NIR;
+  r.Clr = Clr;
+  r.FLKR = FLKR;
+  r.AS7341_timestamp = millis();
+
+  AS7341_history[AS7341_historyIndex] = r;
+  AS7341_historyIndex = (AS7341_historyIndex + 1) % AS7341_HISTORY_SIZE;
+}
+
 float calculateUVIndex(float uva, float uvb) {
   return (0.002 * uva + 0.005 * uvb);  // adjust calibration later
 }
@@ -613,124 +801,3 @@ void printLatestDS18() {
   DS18Reading latest = DS18history[(DS18historyIndex - 1 + DS18HISTORY_SIZE) % DS18HISTORY_SIZE];
   Serial.printf("t=%lu ms | tempurature=%.2f\n", latest.DS_timestamp, latest.DS_temp);
 }
-
-
-
-
-
-
-
-
-
-
-
-//   //DS18B20 Temp Sensor Example Code
-//   while (ds.selectNext()) {
-//     Serial.println(ds.getTempC());
-//   }
-//   // Display DS18B20 Reading on the OLED Display for 2 seconds
-//   display.clearDisplay();
-//   // Thermometer Icon
-//   display.drawBitmap(0, 0, thermometer_bmp, 32, 32, SSD1306_WHITE);
-//   display.setCursor(34, 4);
-//   display.setTextSize(1);
-//   display.print("Temp: ");
-//   display.print(ds.getTempC());
-//   display.print(" °C");
-//   display.setCursor(0, 38);
-//   display.setTextSize(1);
-//   display.print("DS18B20");
-
-//   display.display();
-//   delay(2000); // Wait for 2 seconds before the next reading
-//   ///////////////////////////////////
-  
-//   // AS7331 Example Code
-//   // Send a start measurement command.
-//   if (ksfTkErrOk != uvSensor.setStartState(true))
-//     Serial.println("Error starting reading!");
-
-//   // Wait for a bit longer than the conversion time.
-//   delay(2 + uvSensor.getConversionTimeMillis());
-
-//   // Read UV values.
-//   if (ksfTkErrOk != uvSensor.readAllUV())
-//     Serial.println("Error reading UV.");
-
-//   Serial.print("UVA:");
-//   Serial.print(uvSensor.getUVA());
-//   Serial.print(" UVB:");
-//   Serial.print(uvSensor.getUVB());
-//   Serial.print(" UVC:");
-//   Serial.println(uvSensor.getUVC());
-//   // Display UV Readings on the OLED Display for 2 seconds
-//   display.clearDisplay();
-//   // UV Icon
-//   display.drawBitmap(0, 0, UV_Icon_bmp, 32, 32, SSD1306_WHITE);
-//   display.setCursor(28, 4);
-//   display.setTextSize(1);
-//   display.print("UV-A:");
-//   display.print(uvSensor.getUVA());
-//   display.print("µW/cm²");
-  
-//   display.setCursor(28, 24);
-//   display.setTextSize(1);
-//   display.print("UV-B:");
-//   display.print(uvSensor.getUVB());
-//   display.print("µW/cm²");
-
-//   display.setCursor(28, 44);
-//   display.setTextSize(1);
-//   display.print("UV-C:");
-//   display.print(uvSensor.getUVC());
-//   display.print("µW/cm²");
-
-//   display.display();
-//   delay(2000); // Wait for 2 seconds before the next reading
-//   /////////////////////////////////////////////////////
-
-//   //AHT21 Example Code
-//    // Create sensor event objects to store data
-//   sensors_event_t humidity, temp;
-
-//   // Get new data from the AHT21 sensor
-//   aht.getEvent(&humidity, &temp);
-
-//   // Print temperature data
-//   Serial.print("Temperature: ");
-//   Serial.print(temp.temperature);
-//   Serial.println(" °C");
-
-//   // Print humidity data
-//   Serial.print("Humidity: ");
-//   Serial.print(humidity.relative_humidity);
-//   Serial.println(" %");
-
-//   // Display AHT21 temp & Humidity on the OLED Display for 2 seconds
-//   display.clearDisplay();
-//   // Thermometer Icon
-//   display.drawBitmap(0, 0, thermometer_bmp, 32, 32, SSD1306_WHITE);
-//   display.setCursor(36, 4);
-//   display.setTextSize(1);
-//   display.print("Temp: ");
-//   display.print(temp.temperature);
-//   display.print(" °C");
-
-//   // Droplet Icon
-//   display.drawBitmap(0, 32, humidity_bmp, 32, 32, SSD1306_WHITE);
-//   display.setCursor(36, 28);
-//   display.setTextSize(1);
-//   display.print("Hum:  ");
-//   display.print(humidity.relative_humidity);
-//   display.print(" %");
-
-//   display.setCursor(32, 48);
-//   display.setTextSize(2);
-//   display.print("AHT21");
-
-//   display.display();
-//   delay(2000); // Wait for 2 seconds before the next reading
-//   ///////////////////////////////////////////////////////////
-// }
-
-
