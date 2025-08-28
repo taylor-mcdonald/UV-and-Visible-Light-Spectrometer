@@ -270,7 +270,7 @@ const unsigned char microwatt_bmp[] PROGMEM = {
 };
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   Wire.begin(CUSTOM_SDA_PIN, CUSTOM_SCL_PIN); // Initialize I2C with custom pins
 
   // OLED Init *******************************************//
@@ -359,7 +359,14 @@ void setup() {
   as7341.setATIME(100); // 100ms integration time
   as7341.setASTEP(999); // sets the integration time to 100ms
   as7341.setGain(AS7341_GAIN_256X); // set a high gain
-
+  
+  display.clearDisplay();
+  display.setCursor(10, 28);
+  display.println("AS7341 Sensor Ready");
+  display.display();
+  Serial.println("AS7341 Sensor Read");
+  delay(1000);
+  // //***********************************************************************************//
 
   // // Attempt to initialize the AHT21 sensor and set read interupt timer*****************************************//
   if (!aht.begin()) {
@@ -379,12 +386,14 @@ void setup() {
   pinMode(BK_button, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(BK_button), onBK_button_detect, FALLING);
 
+  Serial.println("Button interrupts initialized.");
+
   // --- Hardware timer for screen updates ---
    // timerBegin(timer_num, prescaler, countUp)
   // timer_num: 0-3 available
   // prescaler: clock divider
   // countUp: true for up-counting
-  screenTimer = timerBegin(0, 80, true); //
+  screenTimer = timerBegin(1, 80, true); //
 
     // Attach interrupt (third arg = edge triggered or level triggered)
   timerAttachInterrupt(screenTimer, &onScreenTimer, true);
@@ -393,23 +402,29 @@ void setup() {
   // Here we want e.g. 500 ms update → 500,000 µs
   timerAlarmWrite(screenTimer, SCREEN_UPDATE_MS*1000, true);
   // 80 prescaler -> 1 tick = 1 µs (assuming 80 MHz APB clock)
-  
+  timerAlarmEnable(screenTimer); // Enable the alarm
+  Serial.println("screen timer interrupt initialized.");
+
+
+
   AHT_Timer = timerBegin(0, 80, true); //
   timerAttachInterrupt(AHT_Timer, &AHTSensorReady, true);
   timerAlarmWrite(AHT_Timer, AHT_UPDATE_MS*1000, true);
+  timerAlarmEnable(AHT_Timer); // Enable the alarm
+  Serial.println("AHT21 timer interrupt initialized.");
 
   // DS_Timer = timerBegin(1000); //
   // timerAttachInterrupt(DS_Timer, &DS18SensorReady);
   // timerAlarm(DS_Timer, DS_UPDATE_MS, true, 0);
 
   // --- FreeRTOS tasks ---
-  xTaskCreatePinnedToCore(screenTask, "Screen Task", 4096, NULL, 1, NULL, 0);
-  xTaskCreatePinnedToCore(UVsensorTask, "UV Sensor Task", 4096, NULL, 1, NULL, 0);
-  xTaskCreatePinnedToCore(AHT21sensorTask, "AHT21 Sensor Task", 4096, NULL, 1, NULL, 0);
-  xTaskCreatePinnedToCore(FWD_buttonTask, "Forward Button Task", 4096, NULL, 1, NULL, 0);
-  xTaskCreatePinnedToCore(BK_buttonTask, "Back Button Task", 4096, NULL, 1, NULL, 0);
-  xTaskCreatePinnedToCore(DS18B20sensorTask, "DS18 Sensor Task", 4096, NULL, 1, NULL, 0);
-  xTaskCreatePinnedToCore(AS7341sensorTask, "AS7341 Sensor Task", 4096, NULL, 1, NULL, 0);
+  xTaskCreatePinnedToCore(screenTask, "Screen Task", 4096, NULL, 1, NULL, tskNO_AFFINITY);
+  xTaskCreatePinnedToCore(UVsensorTask, "UV Sensor Task", 4096, NULL, 1, NULL, tskNO_AFFINITY);
+  xTaskCreatePinnedToCore(AHT21sensorTask, "AHT21 Sensor Task", 4096, NULL, 1, NULL, tskNO_AFFINITY);
+  xTaskCreatePinnedToCore(FWD_buttonTask, "Forward Button Task", 4096, NULL, 1, NULL, tskNO_AFFINITY);
+  xTaskCreatePinnedToCore(BK_buttonTask, "Back Button Task", 4096, NULL, 1, NULL, tskNO_AFFINITY);
+  xTaskCreatePinnedToCore(DS18B20sensorTask, "DS18 Sensor Task", 4096, NULL, 1, NULL, tskNO_AFFINITY);
+  xTaskCreatePinnedToCore(AS7341sensorTask, "AS7341 Sensor Task", 4096, NULL, 1, NULL, tskNO_AFFINITY);
 }
 
 void loop() {
@@ -431,12 +446,12 @@ void screenTask(void *pvParameters) {
         // UV Raw Data Screen
         case 0: {
           UV_latest = UVhistory[(UVhistoryIndex - 1 + UVHISTORY_SIZE) % UVHISTORY_SIZE];
-          Serial.print("UVA:");
-          Serial.print(UV_latest.uva);
-          Serial.print(" UVB:");
-          Serial.print(UV_latest.uvb);
-          Serial.print(" UVC:");
-          Serial.println(UV_latest.uvc);
+          //Serial.print("UVA:");
+          //Serial.print(UV_latest.uva);
+          //Serial.print(" UVB:");
+          //Serial.print(UV_latest.uvb);
+          //Serial.print(" UVC:");
+          //Serial.println(UV_latest.uvc);
           // Display UV Readings on the OLED Display for 2 seconds
 
           // UV Icon
@@ -478,14 +493,14 @@ void screenTask(void *pvParameters) {
         case 2: {
           AHT_latest = AHThistory[(AHThistoryIndex - 1 + AHTHISTORY_SIZE) % AHTHISTORY_SIZE];
           // Print temperature data
-          Serial.print("Temperature: ");
-          Serial.print(AHT_latest.temp);
-          Serial.println(" °C");
+          //Serial.print("Temperature: ");
+          //Serial.print(AHT_latest.temp);
+          //Serial.println(" °C");
 
           // Print humidity data
-          Serial.print("Humidity: ");
-          Serial.print(AHT_latest.humid);
-          Serial.println(" %");
+          //Serial.print("Humidity: ");
+          //Serial.print(AHT_latest.humid);
+          //Serial.println(" %");
 
           // Display AHT21 temp & Humidity on the OLED Display for 2 seconds
           display.clearDisplay();
@@ -620,9 +635,9 @@ void FWD_buttonTask(void *pvParameters) {
 
       // Change the Screen to display when the screen update is called
       ScreenDisplay = (ScreenDisplay + 1) % NumOfScreens;
-      Serial.println("FWD Button hit");
-      Serial.print("Screen to display: ");
-      Serial.println(ScreenDisplay);
+      //Serial.println("FWD Button hit");
+      //Serial.print("Screen to display: ");
+      //Serial.println(ScreenDisplay);
     }
     vTaskDelay(pdMS_TO_TICKS(10)); // small sleep
   }
@@ -635,9 +650,9 @@ void BK_buttonTask(void *pvParameters) {
 
       // Change the Screen to display when the screen update is called
       ScreenDisplay = (ScreenDisplay - 1) % NumOfScreens;
-      Serial.println("Back Button hit");
-      Serial.print("Screen to display: ");
-      Serial.println(ScreenDisplay);
+      //Serial.println("Back Button hit");
+      //Serial.print("Screen to display: ");
+      //Serial.println(ScreenDisplay);
     }
     vTaskDelay(pdMS_TO_TICKS(10)); // small sleep
   }
@@ -657,7 +672,7 @@ void UVsensorTask(void *pvParameters) {
       float uvc = uvSensor.getUVC();
       addUVReading(uva, uvb, uvc);
 
-      Serial.println("UV data read and stored");
+      //Serial.println("UV data read and stored");
       printLatestUV();
     }
     vTaskDelay(pdMS_TO_TICKS(SENSOR_TASK_DELAY)); // avoid busy loop
@@ -690,7 +705,7 @@ void AS7341sensorTask(void *pvParameters) {
 
       addAS7341Reading(F1, F2, F3, F4, F5, F6, F7, F8, NIR, Clr, FLKR);
 
-      Serial.println("AS7341 data read and stored");
+      //Serial.println("AS7341 data read and stored");
     }
     vTaskDelay(pdMS_TO_TICKS(SENSOR_TASK_DELAY)); // avoid busy loop
   }
