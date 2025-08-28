@@ -579,17 +579,18 @@ void screenTask(void *pvParameters) {
 
           // Normalize AS7341 values
           uint16_t maxVal = 1;
-          uint16_t channels[8] = {
-            AS7341_latest.F1, AS7341_latest.F2, AS7341_latest.F3, AS7341_latest.F4,
-            AS7341_latest.F5, AS7341_latest.F6, AS7341_latest.F7, AS7341_latest.F8
+          //Get the values in reverse order for display (F8 to F1 -> low nm to high nm)
+          uint16_t channels[9] = {
+            AS7341_latest.NIR, AS7341_latest.F8, AS7341_latest.F7, AS7341_latest.F6, AS7341_latest.F5,
+            AS7341_latest.F4, AS7341_latest.F3, AS7341_latest.F2, AS7341_latest.F1
           };
 
-          for (int i = 0; i < 8; i++) {
+          for (int i = 0; i < 9; i++) {
             if (channels[i] > maxVal) maxVal = channels[i];
           }
 
           // Draw AS7341 bars
-          for (int i = 0; i < 8; i++) {
+          for (int i = 0; i < 9; i++) {
             int barHeight = map(channels[i], 0, maxVal, 0, chartHeight);
             int x = i * (barWidth + spacing);
             display.fillRect(x, chartY - barHeight, barWidth, barHeight, SSD1306_WHITE);
@@ -604,7 +605,7 @@ void screenTask(void *pvParameters) {
 
           for (int i = 0; i < 3; i++) {
             int barHeight = map(uvVals[i], 0, maxUV, 0, chartHeight);
-            int x = 80 + i * (barWidth + spacing);
+            int x = 90 + i * (barWidth + spacing);
             display.fillRect(x, chartY - barHeight, barWidth, barHeight, SSD1306_WHITE);
           }
 
