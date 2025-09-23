@@ -37,7 +37,7 @@ volatile bool AS7341sensorReadFlag = false;
 //   unsigned long AS7341_timestamp;
 // };
 
-volatile bool AS7341_SMUX_Setting_F1F4 = true; // true = F1-F4, false = F5-F8
+volatile bool AS7341_SMUX_low = true; // true = F1-F4, false = F5-F8
 
 // struct AHT21Reading {
 //   float temp;
@@ -66,10 +66,16 @@ UVReading UVhistory[UVHISTORY_SIZE];
 int UVhistoryIndex = 0;
 UVReading UV_latest;
 
+
+
 //#define AS7341_HISTORY_SIZE 120
-AS7341Reading AS7341_history[AS7341_HISTORY_SIZE];
-int AS7341_historyIndex = 0;
-AS7341Reading AS7341_latest;
+AS7341Reading AS7341_history_low[AS7341_HISTORY_SIZE];
+int AS7341_historyIndex_low = 0;
+AS7341Reading AS7341_latest_low;
+
+AS7341Reading AS7341_history_high[AS7341_HISTORY_SIZE];
+int AS7341_historyIndex_high = 0;
+AS7341Reading AS7341_latest_high;
 
 //#define AHTHISTORY_SIZE 120
 AHT21Reading AHThistory[AHTHISTORY_SIZE];
@@ -117,29 +123,28 @@ void addUVReading(float uva, float uvb, float uvc) {
   UVhistoryIndex = (UVhistoryIndex + 1) % UVHISTORY_SIZE;
 }
 
-void addAS7341Reading(uint16_t F1, uint16_t F2, uint16_t F3, uint16_t F4, uint16_t F5, \
-  uint16_t F6, uint16_t F7, uint16_t F8, uint16_t NIR, uint16_t Clr, uint16_t FLKR, \
-  as7341_gain_t gain, long AS7341_IntegrationTime) {
+// void addAS7341Reading(uint16_t F1, uint16_t F2, uint16_t F3, uint16_t F4, \
+//   uint16_t NIR, uint16_t Clr, as7341_gain_t gain) {
   
-  AS7341Reading r;
-  r.F1 = F1;
-  r.F2 = F2;
-  r.F3 = F3;
-  r.F4 = F4;
-  r.F5 = F5;
-  r.F6 = F6;
-  r.F7 = F7;
-  r.F8 = F8;
-  r.NIR = NIR;
-  r.Clr = Clr;
-  r.FLKR = FLKR;
-  r.gain = gain;
-  r.AS7341_IntegrationTime = AS7341_IntegrationTime;
-  r.AS7341_timestamp = millis();
+//   AS7341Reading r;
+//   r.F1_F5 = F1;
+//   r.F2_F6 = F2;
+//   r.F3_F7 = F3;
+//   r.F4_F8 = F4;
+//   r.NIR = NIR;
+//   r.Clr = Clr;
+//   r.gain = gain;
+//   //r.AS7341_IntegrationTime = AS7341_IntegrationTime;
+//   r.timestamp = millis();
 
-  AS7341_history[AS7341_historyIndex] = r;
-  AS7341_historyIndex = (AS7341_historyIndex + 1) % AS7341_HISTORY_SIZE;
-}
+//   if (AS7341_SMUX_low) {
+//     AS7341_history_low[AS7341_historyIndex_low] = r;
+//     AS7341_historyIndex_low = (AS7341_historyIndex_low + 1) % AS7341_HISTORY_SIZE;
+//   } else {
+//     AS7341_history_high[AS7341_historyIndex_high] = r;
+//     AS7341_historyIndex_high = (AS7341_historyIndex_high + 1) % AS7341_HISTORY_SIZE;
+//   }
+// }
 
 float calculateUVIndex(float uva, float uvb) {
   return (0.002 * uva + 0.005 * uvb);  // adjust calibration later

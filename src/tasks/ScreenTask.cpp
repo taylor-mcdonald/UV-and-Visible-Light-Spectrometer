@@ -50,6 +50,8 @@ const unsigned char microwatt_bmp[] PROGMEM = {
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
+
+
 TaskHandle_t screenTaskHandle;
 
 void initScreen() {
@@ -195,31 +197,33 @@ void screenTask(void *pvParameters) {
       };
       case 4: {
         // Display AS7341 Reading on the OLED Display
-        AS7341_latest = AS7341_history[(AS7341_historyIndex - 1 + AS7341_HISTORY_SIZE) % AS7341_HISTORY_SIZE];
+        AS7341_latest_low = AS7341_history_low[(AS7341_historyIndex_low - 1 + AS7341_HISTORY_SIZE) % AS7341_HISTORY_SIZE];
+        AS7341_latest_high = AS7341_history_high[(AS7341_historyIndex_high - 1 + AS7341_HISTORY_SIZE) % AS7341_HISTORY_SIZE];
         display.setCursor(0, 0);
         display.setTextSize(1);
         display.print("AS7341 F1-F8:");
         display.setCursor(0, 10);
-        display.print(AS7341_latest.F1); display.print(", ");
-        display.print(AS7341_latest.F2); display.print(", ");
-        display.print(AS7341_latest.F3); display.print(", ");
-        display.print(AS7341_latest.F4);
+        display.print(AS7341_latest_low.F1_F5); display.print(", ");
+        display.print(AS7341_latest_low.F2_F6); display.print(", ");
+        display.print(AS7341_latest_low.F3_F7); display.print(", ");
+        display.print(AS7341_latest_low.F4_F8);
         display.setCursor(0, 20);
-        display.print(AS7341_latest.F5); display.print(", ");
-        display.print(AS7341_latest.F6); display.print(", ");
-        display.print(AS7341_latest.F7); display.print(", ");
-        display.print(AS7341_latest.F8);
+        display.print(AS7341_latest_high.F1_F5); display.print(", ");
+        display.print(AS7341_latest_high.F2_F6); display.print(", ");
+        display.print(AS7341_latest_high.F3_F7); display.print(", ");
+        display.print(AS7341_latest_high.F4_F8);
         display.setCursor(0, 30);
-        display.print("NIR:"); display.print(AS7341_latest.NIR);
+        display.print("NIR:"); display.print(AS7341_latest_low.NIR);
         display.setCursor(64, 30);
-        display.print("CLR:"); display.print(AS7341_latest.Clr);
+        display.print("CLR:"); display.print(AS7341_latest_high.Clr);
         display.setCursor(0, 40);
-        display.print("FLKR:"); display.print(AS7341_latest.FLKR);
+       // display.print("FLKR:"); display.print(AS7341_latest.FLKR);
         break;
       };
       case 5: {
         // Display AS7341 Bar Chart on the OLED Display
-        AS7341_latest = AS7341_history[(AS7341_historyIndex - 1 + AS7341_HISTORY_SIZE) % AS7341_HISTORY_SIZE];
+        AS7341_latest_low = AS7341_history_low[(AS7341_historyIndex_low - 1 + AS7341_HISTORY_SIZE) % AS7341_HISTORY_SIZE];
+        AS7341_latest_high = AS7341_history_high[(AS7341_historyIndex_high - 1 + AS7341_HISTORY_SIZE) % AS7341_HISTORY_SIZE];
         UV_latest = UVhistory[(UVhistoryIndex - 1 + UVHISTORY_SIZE) % UVHISTORY_SIZE];
         
         // --- Chart layout ---
@@ -232,8 +236,9 @@ void screenTask(void *pvParameters) {
         uint16_t maxVal = 1;
         //Get the values in reverse order for display (F8 to F1 -> low nm to high nm)
         uint16_t channels[9] = {
-          AS7341_latest.NIR, AS7341_latest.F8, AS7341_latest.F7, AS7341_latest.F6, AS7341_latest.F5,
-          AS7341_latest.F4, AS7341_latest.F3, AS7341_latest.F2, AS7341_latest.F1
+          AS7341_latest_high.NIR, AS7341_latest_high.F4_F8, AS7341_latest_high.F3_F7, AS7341_latest_high.F2_F6, 
+          AS7341_latest_high.F1_F5, AS7341_latest_low.F4_F8, AS7341_latest_low.F3_F7, AS7341_latest_low.F2_F6,
+          AS7341_latest_low.F1_F5
         };
 
         for (int i = 0; i < 9; i++) {

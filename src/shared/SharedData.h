@@ -1,6 +1,6 @@
 #pragma once
 #include <Arduino.h>
-#include <Adafruit_AS7341.h>
+//#include <Adafruit_AS7341.h>
 
 // ================== Global Variables ==================
 extern volatile unsigned long last_interrupt_time; // Global or static in ISR
@@ -21,25 +21,40 @@ struct UVReading {
   unsigned long UV_timestamp;
 };
 
+// struct AS7341Reading {
+//   uint16_t F1;	// 415nm -> Violet
+//   uint16_t F2;	// 445nm -> Indigo-Blue
+//   uint16_t F3;  // 480nm -> Blue
+//   uint16_t F4;	// 515nm -> Green
+//   uint16_t F5;  // 555nm -> Yellow-Green
+//   uint16_t F6;  // 590nm -> Yellow-Orange
+//   uint16_t F7;  // 630nm -> Red
+//   uint16_t F8;  // 680nm -> more Red
+//   uint16_t NIR; // Near Infrared
+//   uint16_t Clr; // Clear Channel	
+//   uint16_t FLKR;// Flicker Detection	
+//   as7341_gain_t gain;      // Current gain setting
+//   long AS7341_IntegrationTime;
+
+//   unsigned long AS7341_timestamp;
+// };
+
 struct AS7341Reading {
-  uint16_t F1;	// 415nm -> Violet
-  uint16_t F2;	// 445nm -> Indigo-Blue
-  uint16_t F3;  // 480nm -> Blue
-  uint16_t F4;	// 515nm -> Green
-  uint16_t F5;  // 555nm -> Yellow-Green
-  uint16_t F6;  // 590nm -> Yellow-Orange
-  uint16_t F7;  // 630nm -> Red
-  uint16_t F8;  // 680nm -> more Red
+  uint16_t F1_F5;	// 415nm -> Violet
+  uint16_t F2_F6;	// 445nm -> Indigo-Blue
+  uint16_t F3_F7;  // 480nm -> Blue
+  uint16_t F4_F8;	// 515nm -> Green
   uint16_t NIR; // Near Infrared
   uint16_t Clr; // Clear Channel	
-  uint16_t FLKR;// Flicker Detection	
-  as7341_gain_t gain;      // Current gain setting
-  long AS7341_IntegrationTime;
-
-  unsigned long AS7341_timestamp;
+  uint8_t gain;      // Current gain setting
+  bool saturation;
+  long IntegrationTime;
+  unsigned long timestamp;
 };
 
-extern volatile bool AS7341_SMUX_Setting_F1F4; // true = F1-F4, false = F5-F8
+extern AS7341Reading AS7341_Buffer; // temporary buffer for reading results
+
+extern volatile bool AS7341_SMUX_low; // true = F1-F4, false = F5-F8
 
 struct AHT21Reading {
   float temp;
@@ -69,9 +84,13 @@ extern int UVhistoryIndex ;
 extern UVReading UV_latest;
 
 #define AS7341_HISTORY_SIZE 120
-extern AS7341Reading AS7341_history[AS7341_HISTORY_SIZE];
-extern int AS7341_historyIndex;
-extern AS7341Reading AS7341_latest;
+extern AS7341Reading AS7341_history_low[AS7341_HISTORY_SIZE];
+extern int AS7341_historyIndex_low;
+extern AS7341Reading AS7341_latest_low;
+
+extern AS7341Reading AS7341_history_high[AS7341_HISTORY_SIZE];
+extern int AS7341_historyIndex_high;
+extern AS7341Reading AS7341_latest_high;
 
 #define AHTHISTORY_SIZE 120
 extern AHT21Reading AHThistory[AHTHISTORY_SIZE];
@@ -91,18 +110,24 @@ void printByteBinary(uint8_t value);
 
 void addAHT21Reading(float hmd, float tmp);
 void addDS18Reading(float tmp);
-void addAS7341Reading(
-  uint16_t F1,
-  uint16_t F2,
-  uint16_t F3,
-  uint16_t F4,
-  uint16_t F5,
-  uint16_t F6,
-  uint16_t F7,
-  uint16_t F8,
-  uint16_t NIR,
-  uint16_t Clr,
-  uint16_t FLKR,
-  as7341_gain_t gain,
-  long AS7341_IntegrationTime
-);
+// void addAS7341ReadingLow(
+//   uint16_t F1,
+//   uint16_t F2,
+//   uint16_t F3,
+//   uint16_t F4,
+//   uint16_t NIR,
+//   uint16_t Clr,
+//   as7341_gain_t gain_low,
+//   long AS7341_IntegrationTime_low
+// );
+
+//   void addAS7341ReadingHigh(
+//   uint16_t F5,
+//   uint16_t F6,
+//   uint16_t F7,
+//   uint16_t F8,
+//   uint16_t NIR,
+//   uint16_t Clr,
+//   as7341_gain_t gain_high,
+//   long AS7341_IntegrationTime_high
+// );  

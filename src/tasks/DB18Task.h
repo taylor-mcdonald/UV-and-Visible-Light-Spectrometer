@@ -1,7 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include "shared/SharedData.h"
-#include <Config.h>
+#include "Config.h"
 #include <DS18B20.h>
 #include <OneWire.h>
 
