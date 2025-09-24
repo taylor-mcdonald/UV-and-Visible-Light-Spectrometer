@@ -11,3 +11,4 @@ void UVsensorTask(void *pvParameters);
 
 void initUVSensor(void);
 void startUVSensorTask(void);
+void initUVSensorInterrupt(void);

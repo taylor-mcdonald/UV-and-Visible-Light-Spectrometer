@@ -52,7 +52,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 
 
-TaskHandle_t screenTaskHandle;
+TaskHandle_t screenTaskHandle = nullptr;
 
 void initScreen() {
   // OLED Init *******************************************//
@@ -70,18 +70,21 @@ void initScreen() {
   Serial.println("Screen initialized");
   delay(3000);
 
+  return;
 }
 
 void startScreenTask() {
-     xTaskCreatePinnedToCore(
-        screenTask,             // Function that implements the task.
-        "Screen Task",          // Text name for the task.
-        4096,                   // Stack size in words, not bytes.
-        NULL,                   // Parameter passed into the task.
-        1,                      // Priority at which the task is created.
-        &screenTaskHandle,       // Used to pass out the created task's handle.
-        tskNO_AFFINITY          // Run on any core.
-    );
+  xTaskCreatePinnedToCore(
+    screenTask,             // Function that implements the task.
+    "Screen Task",          // Text name for the task.
+    4096,                   // Stack size in words, not bytes.
+    NULL,                   // Parameter passed into the task.
+    1,                      // Priority at which the task is created.
+    &screenTaskHandle,       // Used to pass out the created task's handle.
+    tskNO_AFFINITY          // Run on any core.
+  );
+
+  return;
 }
 
 
@@ -276,13 +279,16 @@ void screenTask(void *pvParameters) {
       default:
         break;
       }
-      display.display();
+
+    display.display();
       //Serial.print("Just updated screen: ");
       //Serial.println(ScreenDisplay); 
       //Serial.println("Screen updated");
+   
+    // Wait until the next 500 ms boundary
+    vTaskDelayUntil(&lastWake, interval);
+  
   }
-  // Wait until the next 500 ms boundary
-  vTaskDelayUntil(&lastWake, interval);
 }
 
 

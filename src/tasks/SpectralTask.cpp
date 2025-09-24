@@ -1,12 +1,30 @@
 #include "SpectralTask.h"
 
+// Task handle
+TaskHandle_t as7341TaskHandle = nullptr;
+TaskHandle_t as7341ReadTaskHandle = nullptr;
+TaskHandle_t as7341SmuxTaskHandle = nullptr;
+
+
+// ISR (notify task)
 void IRAM_ATTR AS7341InterruptHandler() {
-  AS7341sensorInterruptFlag = true; // set flag to handle AS7341 interrupts
+  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+  vTaskNotifyGiveFromISR(as7341TaskHandle, &xHigherPriorityTaskWoken);
+  
+  // Yield to higher priority task if needed
+  if (xHigherPriorityTaskWoken) {
+      portYIELD_FROM_ISR();  // ESP32 version takes no args
+  }
+
 }
 
-void IRAM_ATTR onSPSensorReady() {
-  AS7341sensorReadFlag = true; // set flag for AS7341 sensor task
-}
+// void IRAM_ATTR AS7341InterruptHandler() {
+//   AS7341sensorInterruptFlag = true; // set flag to handle AS7341 interrupts
+// }
+
+// void IRAM_ATTR onSPSensorReady() {
+//   AS7341sensorReadFlag = true; // set flag for AS7341 sensor task
+// }
 
 Adafruit_AS7341 as7341; // Create an instance of the AS7341 sensor object
 
@@ -16,9 +34,7 @@ void initAS7341Sensor(void) {
   unsigned long time1, time2, time3, time4;
 
   // Adafruit AS7341 Sensor Initialization *******************************************//
-  //Assign the AS7341 interrupt output to work as an interrupt on the ESP32
-  pinMode(SP_RDY_PIN, INPUT);
-  attachInterrupt(digitalPinToInterrupt(SP_RDY_PIN), AS7341InterruptHandler, RISING);
+
 
   //Setup a PWM signal on the chosen pin to drive the AS7341's SYNC pin
   // 40 Hz frequency, 13-bit resolution is fine (0-8191)
@@ -216,216 +232,240 @@ void initAS7341Sensor(void) {
 }
 
 void startSpectralTasks() {
-    // xTaskCreatePinnedToCore(
-    //     AS7341sensorTask,       // Function that implements the task.
-    //     "AS7341sensorTask",     // Text name for the task.
-    //     4096,                   // Stack size in words, not bytes.
-    //     NULL,                   // Parameter passed into the task.
-    //     1,                      // Priority at which the task is created.
-    //     NULL,                   // Pointer to the task handle.
-    //     0                       // Core where the task should run 
-    //   );                 
+  // xTaskCreatePinnedToCore(
+  //     AS7341sensorTask,       // Function that implements the task.
+  //     "AS7341sensorTask",     // Text name for the task.
+  //     4096,                   // Stack size in words, not bytes.
+  //     NULL,                   // Parameter passed into the task.
+  //     1,                      // Priority at which the task is created.
+  //     NULL,                   // Pointer to the task handle.
+  //     0                       // Core where the task should run 
+  //   );                 
 
-    xTaskCreatePinnedToCore(
-      AS7341InterruptTask,      // Function that implements the task.
-      "AS7341InterruptTask",    // Text name for the task. 
-      4096,                     // Stack size in words, not bytes.
-      NULL,                     // Parameter passed into the task. 
-      1,                        // Priority at which the task is created.
-      NULL,                     // Pointer to the task handle.
-      tskNO_AFFINITY            // Core where the task should run
-    );
+  xTaskCreatePinnedToCore(
+    AS7341InterruptTask,      // Function that implements the task.
+    "AS7341InterruptTask",    // Text name for the task. 
+    4096,                     // Stack size in words, not bytes.
+    NULL,                     // Parameter passed into the task. 
+    1,                        // Priority at which the task is created.
+    &as7341TaskHandle,        // Pointer to the task handle.
+    tskNO_AFFINITY            // Core where the task should run
+  );
 
-    xTaskCreatePinnedToCore(
-      AS7341_Set_SMUX_Task,     // Function that implements the task.
-      "AS7341 Set SMUX Task",   // Text name for the task.
-      4096,                     // Stack size in words, not bytes.
-      NULL,                     // Parameter passed into the task.
-      1,                        // Priority at which the task is created.
-      NULL,                     // Pointer to the task handle.
-      tskNO_AFFINITY            // Core where the task should run
-    );
+  xTaskCreatePinnedToCore(
+    AS7341_Set_SMUX_Task,     // Function that implements the task.
+    "AS7341 Set SMUX Task",   // Text name for the task.
+    4096,                     // Stack size in words, not bytes.
+    NULL,                     // Parameter passed into the task.
+    1,                        // Priority at which the task is created.
+    &as7341SmuxTaskHandle,    // Pointer to the task handle.
+    tskNO_AFFINITY            // Core where the task should run
+  );
 
-    xTaskCreatePinnedToCore(
-      AS7341_Read_Results_Task, // Function that implements the task.
-      "AS7341 Sensor Task",     // Text name for the task.
-      4096,                     // Stack size in words, not bytes.
-      NULL,                     // Parameter passed into the task.
-      1,                        // Priority at which the task is created.
-      NULL,                     // Pointer to the task handle.
-      tskNO_AFFINITY            // Core where the task should run
-    );
+  xTaskCreatePinnedToCore(
+    AS7341_Read_Results_Task, // Function that implements the task.
+    "AS7341 Read Task",     // Text name for the task.
+    4096,                     // Stack size in words, not bytes.
+    NULL,                     // Parameter passed into the task.
+    1,                        // Priority at which the task is created.
+    &as7341ReadTaskHandle,    // Pointer to the task handle.
+    tskNO_AFFINITY            // Core where the task should run
+  );
+  return;
 }
 
+void initAS7341interrupt(){
+  //Assign the AS7341 interrupt output to work as an interrupt on the ESP32
+  pinMode(SP_RDY_PIN, INPUT);
+  attachInterrupt(digitalPinToInterrupt(SP_RDY_PIN), AS7341InterruptHandler, RISING);
+  return;
+}
+
+/*
+The AS7341 visible spectrum sensor is a real pain.  This task needs to be broken up into multiple
+to do slightly different things depending on what was previously done.  When in SPM mode, the 
+sensor's INT pin will go low when a reading is ready and that is what triggers this task to run,
+but only half of the spectral channels are read at a time.  So we need to keep track of which half was read last
+and then read the other half next time and configuring the SMUX appropriately. 
+*/
 void AS7341InterruptTask(void *pvParameters) {
   for (;;) {
-    if (AS7341sensorInterruptFlag) {
-      AS7341sensorInterruptFlag = false;
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-      //Serial.println("AS7341 Interrupt detected");
+    //Serial.println("AS7341 Interrupt detected");
 
-      // Read all the interrupt status registers to clear the interrupt
-      uint8_t stat = as7341.getRegister(AS7341_STAT);
-      uint8_t stat2 = as7341.getRegister(AS7341_STATUS2);
-      uint8_t stat3 = as7341.getRegister(AS7341_STATUS3);
-      uint8_t stat5 = as7341.getRegister(AS7341_STATUS5);
-      uint8_t stat6 = as7341.getRegister(AS7341_STATUS6);
-      uint8_t FDstat = as7341.getRegister(AS7341_FD_STATUS);
+    // Read all the interrupt status registers to clear the interrupt
+    uint8_t stat = as7341.getRegister(AS7341_STAT);
+    uint8_t stat2 = as7341.getRegister(AS7341_STATUS2);
+    uint8_t stat3 = as7341.getRegister(AS7341_STATUS3);
+    uint8_t stat5 = as7341.getRegister(AS7341_STATUS5);
+    uint8_t stat6 = as7341.getRegister(AS7341_STATUS6);
+    uint8_t FDstat = as7341.getRegister(AS7341_FD_STATUS);
 
-      bool ASAT = (stat >> 7) & 0x01; // Spectral and Flicker Detect interrupt
-      bool AINT = (stat >> 3) & 0x01; // Spectral Channel interrupt
-      bool FINT = (stat >> 2) & 0x01; // FIFO Buffer interrupt
-      bool C_INT = (stat >> 1) & 0x01; // Calibration interrupt
-      bool SINT = stat & 0x01; // System interrupt
+    bool ASAT = (stat >> 7) & 0x01; // Spectral and Flicker Detect interrupt
+    bool AINT = (stat >> 3) & 0x01; // Spectral Channel interrupt
+    bool FINT = (stat >> 2) & 0x01; // FIFO Buffer interrupt
+    bool C_INT = (stat >> 1) & 0x01; // Calibration interrupt
+    bool SINT = stat & 0x01; // System interrupt
 
-      bool AVALID = (stat2 >> 6) & 0x01; // ADC data valid
-      bool ASAT_DIGITAL = (stat2 >> 4) & 0x01; // Digital saturation
-      bool ASAT_ANALOG = (stat2 >> 3) & 0x01; // Analog saturation
-      bool FDSAT_ANALOG = (stat2 >> 1) & 0x01; // Flicker detect analog saturation
-      bool FDSAT_DIGITAL = stat2 & 0x01; // Flicker detect digital saturation
+    bool AVALID = (stat2 >> 6) & 0x01; // ADC data valid
+    bool ASAT_DIGITAL = (stat2 >> 4) & 0x01; // Digital saturation
+    bool ASAT_ANALOG = (stat2 >> 3) & 0x01; // Analog saturation
+    bool FDSAT_ANALOG = (stat2 >> 1) & 0x01; // Flicker detect analog saturation
+    bool FDSAT_DIGITAL = stat2 & 0x01; // Flicker detect digital saturation
 
-      bool INT_SP_H = (stat3 >> 5) & 0x01; // Spectral channel high threshold
-      bool INT_SP_L = (stat3 >> 4) & 0x01; // Spectral channel low threshold
+    bool INT_SP_H = (stat3 >> 5) & 0x01; // Spectral channel high threshold
+    bool INT_SP_L = (stat3 >> 4) & 0x01; // Spectral channel low threshold
 
-      bool SINT_FD = (stat5 >> 3) & 0x01; // Flicker detect interrupt
-      bool SINT_SMUX = (stat5 >> 2) & 0x01; // SMUX operation complete interrupt
+    bool SINT_FD = (stat5 >> 3) & 0x01; // Flicker detect interrupt
+    bool SINT_SMUX = (stat5 >> 2) & 0x01; // SMUX operation complete interrupt
 
-      bool FIFO_OV = (stat6 >> 7) & 0x01; // FIFO overflow
-      bool OVTEMP = (stat6 >> 5) & 0x01; // Over temperature
-      bool FD_TRIG = (stat6 >> 4) & 0x01; // Flicker detect trigger error
-      bool SP_TRIG = (stat6 >> 2) & 0x01; // Spectral channel trigger error
-      bool SAI_ACTIVE = (stat6 >> 1) & 0x01; // Sleep After Interrupt active
-      bool INT_BUSY = stat6 & 0x01; // Initialization busy
+    bool FIFO_OV = (stat6 >> 7) & 0x01; // FIFO overflow
+    bool OVTEMP = (stat6 >> 5) & 0x01; // Over temperature
+    bool FD_TRIG = (stat6 >> 4) & 0x01; // Flicker detect trigger error
+    bool SP_TRIG = (stat6 >> 2) & 0x01; // Spectral channel trigger error
+    bool SAI_ACTIVE = (stat6 >> 1) & 0x01; // Sleep After Interrupt active
+    bool INT_BUSY = stat6 & 0x01; // Initialization busy
 
-      // Check for system interrupt
-      if (SINT) {
-        // Serial.println("System Interrupt");
-        //System interrupt indicates either a Flicker Detection or a SMUX Opertation Interrupt
+    // Check for system interrupt
+    if (SINT) {
+      // Serial.println("System Interrupt");
+      //System interrupt indicates either a Flicker Detection or a SMUX Opertation Interrupt
+      
+      // Check for SMUX operation interrupt on bit 2 of STATUS 5
+      if(SINT_SMUX) {
+        // If this bit is set, the SMUX operation is complete and we can start a new measurement
+        // What stage are we in? Maybe it doesn't matter, just start a new measurement
+        Serial.println("SMUX operation complete, starting new measurement...");
+        as7341.enableSpectralMeasurement(true); // start spectral measurement
+      }
+
+      // Check for Flicker Detection interrupt on bit 3 of STATUS 5
+      if(SINT_FD) {
+        // If this bit is set, the FD_STATUS register has changed
         
-        // Check for SMUX operation interrupt on bit 2 of STATUS 5
-        if(SINT_SMUX) {
-          // If this bit is set, the SMUX operation is complete and we can start a new measurement
-          // What stage are we in? Maybe it doesn't matter, just start a new measurement
-          Serial.println("SMUX operation complete, starting new measurement...");
-          as7341.enableSpectralMeasurement(true); // start spectral measurement
-        }
-
-        // Check for Flicker Detection interrupt on bit 3 of STATUS 5
-        if(SINT_FD) {
-          // If this bit is set, the FD_STATUS register has changed
-          
-          // Print for now, figure out what to do later
-          Serial.print("FD_STATUS (0xDB) reads: ");
-          //Serial.println(as7341.getRegister(AS7341_FIFO_MAP), BIN);
-          printByteBinary(FDstat);
-        }
+        // Print for now, figure out what to do later
+        Serial.print("FD_STATUS (0xDB) reads: ");
+        //Serial.println(as7341.getRegister(AS7341_FIFO_MAP), BIN);
+        printByteBinary(FDstat);
       }
-
-      // Check for Saturation interrupt
-      if (ASAT) {
-        Serial.println("Saturation Interrupt, Checking SATUS2 for more info... ");
-        printByteBinary(stat2);
-
-        // Check Bit 6 of STATUS 2 to see if a measurement was completed successfully
-        if (AVALID) {
-          Serial.println("Measurement complete, reading results...");
-          // Set flag to read the results in the AS7341 Read Results task
-          AS7341sensorReadFlag = true;
-        }
-
-        // Check other saturation conditions
-        if (ASAT_DIGITAL | ASAT_ANALOG | FDSAT_ANALOG | FDSAT_DIGITAL) {
-          Serial.println("Saturation detected");
-          Serial.print("ASAT_DIGITAL: ");
-          Serial.println(ASAT_DIGITAL ? "YES" : "NO");
-          Serial.print("ASAT_ANALOG: ");
-          Serial.println(ASAT_ANALOG ? "YES" : "NO");
-          Serial.print("FDSAT_ANALOG: ");
-          Serial.println(FDSAT_ANALOG ? "YES" : "NO");
-          Serial.print("FDSAT_DIGITAL: ");
-          Serial.println(FDSAT_DIGITAL ? "YES" : "NO");
-        }
-      }
-
-      // Check for Spectral Channel Interrupt
-      if (AINT) {
-        Serial.println("Spectral Channel Interrupt, Checking SATUS3 for more info... ");
-        printByteBinary(stat3);
-
-        // Check Bit 4 and 5 of STATUS 3 to see if a channel was outside the thresholds
-        if (INT_SP_H) {
-          Serial.println("One or more channels above high threshold");
-        }
-        if (INT_SP_L) {
-          Serial.println("One or more channels below low threshold");
-        }
-      }
-
-      // Check for FIFO Buffer Interrupt
-      if (FINT) {
-        Serial.println("FIFO Buffer Interrupt");
-        // Not using FIFO, so this should not happen
-      }
-
-      // Check for Calibration Interrupt
-      if (C_INT) {
-        Serial.println("Calibration Interrupt");
-        // Not using Calibration, so this should not happen
-      }
-    
-    // All interrupts handled, write the stat value back to the STATUS register to clear
-    as7341.writeRegister(AS7341_STAT, stat); // clear all status bits
-
     }
-    vTaskDelay(pdMS_TO_TICKS(10)); // avoid busy loop
+
+    // Check for Saturation interrupt
+    if (ASAT) {
+      Serial.println("Saturation Interrupt, Checking SATUS2 for more info... ");
+      printByteBinary(stat2);
+
+      // Check Bit 6 of STATUS 2 to see if a measurement was completed successfully
+      if (AVALID) {
+        Serial.println("Measurement complete, reading results...");
+        // Set flag to read the results in the AS7341 Read Results task
+        //AS7341sensorReadFlag = true;
+        xTaskNotifyGive(as7341ReadTaskHandle);
+      }
+
+      // Check other saturation conditions
+      if (ASAT_DIGITAL | ASAT_ANALOG | FDSAT_ANALOG | FDSAT_DIGITAL) {
+        Serial.println("Saturation detected");
+        Serial.print("ASAT_DIGITAL: ");
+        Serial.println(ASAT_DIGITAL ? "YES" : "NO");
+        Serial.print("ASAT_ANALOG: ");
+        Serial.println(ASAT_ANALOG ? "YES" : "NO");
+        Serial.print("FDSAT_ANALOG: ");
+        Serial.println(FDSAT_ANALOG ? "YES" : "NO");
+        Serial.print("FDSAT_DIGITAL: ");
+        Serial.println(FDSAT_DIGITAL ? "YES" : "NO");
+      }
+    }
+
+    // Check for Spectral Channel Interrupt
+    if (AINT) {
+      Serial.println("Spectral Channel Interrupt, Checking SATUS3 for more info... ");
+      printByteBinary(stat3);
+
+      // Check Bit 4 and 5 of STATUS 3 to see if a channel was outside the thresholds
+      if (INT_SP_H) {
+        Serial.println("One or more channels above high threshold");
+      }
+      if (INT_SP_L) {
+        Serial.println("One or more channels below low threshold");
+      }
+    }
+
+    // Check for FIFO Buffer Interrupt
+    if (FINT) {
+      Serial.println("FIFO Buffer Interrupt");
+      // Not using FIFO, so this should not happen
+    }
+
+    // Check for Calibration Interrupt
+    if (C_INT) {
+      Serial.println("Calibration Interrupt");
+      // Not using Calibration, so this should not happen
+    }
+  
+  // All interrupts handled, write the stat value back to the STATUS register to clear
+  as7341.writeRegister(AS7341_STAT, stat); // clear all status bits
+
   }
 }
 
 void AS7341_Set_SMUX_Task(void *pvParameters) {
+  for (;;) {
+    // Wait here until AS7341InterruptTask wakes us up
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-  if (AS7341_SMUX_low) {
-    Serial.println("Setting SMUX to HIGH channels (F1-F4, Clear, NIR)");
-  } else {
-    Serial.println("Setting SMUX to LOW channels (F5-F8, Clear, NIR)");
-  }
-  as7341.setSMUX(AS7341_SMUX_low);  
+      if (AS7341_SMUX_low) {
+        Serial.println("Setting SMUX to HIGH channels (F1-F4, Clear, NIR)");
+      } else {
+        Serial.println("Setting SMUX to LOW channels (F5-F8, Clear, NIR)");
+      }
+      as7341.setSMUX(AS7341_SMUX_low);  
+    }
 }
 
 void AS7341_Read_Results_Task(void *pvParameters) {
+  for (;;) {
+    // Wait here until AS7341InterruptTask wakes us up
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-  as7341.getResults(AS7341_Buffer);
-  
-  Serial.print("Saturated: ");
-  Serial.println(AS7341_Buffer.saturation ? "YES" : "NO");
+    as7341.getResults(AS7341_Buffer);
+    
+    Serial.print("Saturated: ");
+    Serial.println(AS7341_Buffer.saturation ? "YES" : "NO");
 
-  Serial.print("Gain code: ");
-  Serial.println(AS7341_Buffer.gain);
+    Serial.print("Gain code: ");
+    Serial.println(AS7341_Buffer.gain);
 
-  Serial.print(AS7341_SMUX_low ? "F1-F4" : "F5-F8");
-  Serial.print(AS7341_SMUX_low ? "F1: " : "F5: ");
-  Serial.println(AS7341_Buffer.F1_F5);
-  Serial.print(AS7341_SMUX_low ? "F2: " : "F6: ");
-  Serial.println(AS7341_Buffer.F2_F6);
-  Serial.print(AS7341_SMUX_low ? "F3: " : "F7: ");
-  Serial.println(AS7341_Buffer.F3_F7);
-  Serial.print(AS7341_SMUX_low ? "F4: " : "F8: ");
-  Serial.println(AS7341_Buffer.F4_F8);
-  Serial.print(AS7341_SMUX_low ? "NIR: " : "NIR: ");
-  Serial.println(AS7341_Buffer.NIR);
-  Serial.print(AS7341_SMUX_low ? "Clear: " : "Clear: ");
-  Serial.println(AS7341_Buffer.Clr);
+    Serial.print(AS7341_SMUX_low ? "F1-F4" : "F5-F8");
+    Serial.print(AS7341_SMUX_low ? "F1: " : "F5: ");
+    Serial.println(AS7341_Buffer.F1_F5);
+    Serial.print(AS7341_SMUX_low ? "F2: " : "F6: ");
+    Serial.println(AS7341_Buffer.F2_F6);
+    Serial.print(AS7341_SMUX_low ? "F3: " : "F7: ");
+    Serial.println(AS7341_Buffer.F3_F7);
+    Serial.print(AS7341_SMUX_low ? "F4: " : "F8: ");
+    Serial.println(AS7341_Buffer.F4_F8);
+    Serial.print(AS7341_SMUX_low ? "NIR: " : "NIR: ");
+    Serial.println(AS7341_Buffer.NIR);
+    Serial.print(AS7341_SMUX_low ? "Clear: " : "Clear: ");
+    Serial.println(AS7341_Buffer.Clr);
 
-  // Store the reading in the appropriate history buffer
-  if (AS7341_SMUX_low) {
-    AS7341_history_low[AS7341_historyIndex_low] = AS7341_Buffer;
-    AS7341_historyIndex_low = (AS7341_historyIndex_low + 1) % AS7341_HISTORY_SIZE;
-  } else {
-    AS7341_history_high[AS7341_historyIndex_high] = AS7341_Buffer;
-    AS7341_historyIndex_high = (AS7341_historyIndex_high + 1) % AS7341_HISTORY_SIZE;
+    // Store the reading in the appropriate history buffer
+    if (AS7341_SMUX_low) {
+      AS7341_history_low[AS7341_historyIndex_low] = AS7341_Buffer;
+      AS7341_historyIndex_low = (AS7341_historyIndex_low + 1) % AS7341_HISTORY_SIZE;
+    } else {
+      AS7341_history_high[AS7341_historyIndex_high] = AS7341_Buffer;
+      AS7341_historyIndex_high = (AS7341_historyIndex_high + 1) % AS7341_HISTORY_SIZE;
+    }
+
+    AS7341_SMUX_low = !AS7341_SMUX_low; // toggle for next time
+    xTaskNotifyGive(as7341SmuxTaskHandle);
   }
-
-  AS7341_SMUX_low = !AS7341_SMUX_low; // toggle for next time
 }
+  
+
 
 // void AS7341sensorTask(void *pvParameters) {
 //   for (;;) {

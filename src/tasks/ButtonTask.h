@@ -6,7 +6,8 @@
 void IRAM_ATTR onFWD_button_detect();
 void IRAM_ATTR onBK_button_detect();
 
-void initButtons();
+void startButtonTasks(void);
+void initButtons(void);
 
 void FWD_buttonTask(void *pvParameters);
 void BK_buttonTask(void *pvParameters);

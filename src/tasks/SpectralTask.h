@@ -8,6 +8,7 @@
 
 
 void initAS7341Sensor(void);
+void initAS7341interrupt(void);
 
 void startSpectralTasks(void);
 

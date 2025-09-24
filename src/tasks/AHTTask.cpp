@@ -3,6 +3,8 @@
 
 Adafruit_AHTX0 aht; // Create an instance of the AHTX0 sensor object
 
+TaskHandle_t ahtTaskhandle = nullptr;
+
 void initAHT21Sensor() {
   if (!aht.begin()) {
     Serial.println("Could not find AHT21 sensor");
@@ -15,10 +17,10 @@ void startAHTTask() {
      xTaskCreatePinnedToCore(
         AHT21sensorTask,     // Function that implements the task.
         "AHT21 Sensor Task", // Text name for the task.
-        4096,                // Stack size in words, not bytes.
+        2048,                // Stack size in words, not bytes.
         NULL,                // Parameter passed into the task.
         1,                   // Priority at which the task is created.
-        NULL,               // Used to pass out the created task's handle.
+        &ahtTaskhandle,      // Used to pass out the created task's handle.
         tskNO_AFFINITY       // Run on any core.
     );
 }
@@ -39,10 +41,9 @@ void AHT21sensorTask(void *pvParameters) {
     addAHT21Reading(humidity.relative_humidity, temp.temperature);
 
     //Serial.println("AHT21 data read and stored");
+
+    // Wait until the next 500 ms boundary
+    vTaskDelayUntil(&lastWake, interval);
   }
-  
-  // Wait until the next 500 ms boundary
-  vTaskDelayUntil(&lastWake, interval);
-  
 }
 

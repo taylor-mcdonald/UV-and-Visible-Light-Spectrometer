@@ -58,21 +58,13 @@ void setup() {
   Serial.begin(115200);
   Wire.begin(CUSTOM_SDA_PIN, CUSTOM_SCL_PIN); // Initialize I2C with custom pins
 
-  initScreen();
-  
   ScreenDisplay = 0;
+  initScreen();
 
-  initUVSensor();
-  
-  initAS7341Sensor();
-  display.clearDisplay();
-  display.setCursor(10, 28);
-  display.println("AS7341 Sensor Ready");
-  display.display();
-  Serial.println("AS7341 Sensor Read");
+  initDS18B20Sensor();
+  Serial.println("DS18B20 sensor initialized.");
 
-
-  // //***********************************************************************************//
+    // //***********************************************************************************//
   initAHT21Sensor();
   Serial.println("AHT21 sensor initialized.");
   display.clearDisplay();
@@ -81,15 +73,13 @@ void setup() {
   display.display();
   // //  ******************************************************************************//
 
-
-  initDS18B20Sensor();
-  Serial.println("DS18B20 sensor initialized.");
-
-  initButtons();
-  Serial.println("Button interrupts initialized.");
-
-
-
+  initUVSensor();
+  
+  initAS7341Sensor();
+  display.clearDisplay();
+  display.setCursor(10, 28);
+  display.println("AS7341 Sensor Ready");
+  display.display();
 
 
   // --- FreeRTOS tasks ---
@@ -98,17 +88,16 @@ void setup() {
   startAHTTask();
   startDS18B20Task();
   startSpectralTasks();
-  
+  startButtonTasks();
 
+  initButtons();
+  Serial.println("Button interrupts initialized.");
+
+  initUVSensorInterrupt();
+  initAS7341interrupt();
+  
 }
 
 void loop() {
 }
 
-/*
-The AS7341 visible spectrum sensor is a real pain.  This task needs to be broken up into multiple
-to do slightly different things depending on what was previously done.  When in SPM mode, the 
-sensor's INT pin will go low when a reading is ready and that is what triggers this task to run,
-but only half of the spectral channels are read at a time.  So we need to keep track of which half was read last
-and then read the other half next time and configuring the SMUX appropriately. 
-*/

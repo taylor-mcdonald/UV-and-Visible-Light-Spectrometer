@@ -3,7 +3,8 @@
 //#include <Adafruit_AS7341.h>
 
 // ================== Global Variables ==================
-extern volatile unsigned long last_interrupt_time; // Global or static in ISR
+extern volatile unsigned long last_interrupt_time_fwd; // Global or static in ISR
+extern volatile unsigned long last_interrupt_time_bk; // Global or static in ISR
 
 // ====== FLAGS ======
 extern volatile bool UVsensorReadFlag;
@@ -11,6 +12,7 @@ extern volatile bool FWD_buttonReadFlag;
 extern volatile bool BK_buttonReadFlag;
 extern volatile bool AS7341sensorInterruptFlag;
 extern volatile bool AS7341sensorReadFlag;
+extern volatile bool AS7341sensorSMUXFlag;
 
 
 struct UVReading {
@@ -20,24 +22,6 @@ struct UVReading {
   float uvIndex;
   unsigned long UV_timestamp;
 };
-
-// struct AS7341Reading {
-//   uint16_t F1;	// 415nm -> Violet
-//   uint16_t F2;	// 445nm -> Indigo-Blue
-//   uint16_t F3;  // 480nm -> Blue
-//   uint16_t F4;	// 515nm -> Green
-//   uint16_t F5;  // 555nm -> Yellow-Green
-//   uint16_t F6;  // 590nm -> Yellow-Orange
-//   uint16_t F7;  // 630nm -> Red
-//   uint16_t F8;  // 680nm -> more Red
-//   uint16_t NIR; // Near Infrared
-//   uint16_t Clr; // Clear Channel	
-//   uint16_t FLKR;// Flicker Detection	
-//   as7341_gain_t gain;      // Current gain setting
-//   long AS7341_IntegrationTime;
-
-//   unsigned long AS7341_timestamp;
-// };
 
 struct AS7341Reading {
   uint16_t F1_F5;	// 415nm -> Violet
@@ -110,24 +94,3 @@ void printByteBinary(uint8_t value);
 
 void addAHT21Reading(float hmd, float tmp);
 void addDS18Reading(float tmp);
-// void addAS7341ReadingLow(
-//   uint16_t F1,
-//   uint16_t F2,
-//   uint16_t F3,
-//   uint16_t F4,
-//   uint16_t NIR,
-//   uint16_t Clr,
-//   as7341_gain_t gain_low,
-//   long AS7341_IntegrationTime_low
-// );
-
-//   void addAS7341ReadingHigh(
-//   uint16_t F5,
-//   uint16_t F6,
-//   uint16_t F7,
-//   uint16_t F8,
-//   uint16_t NIR,
-//   uint16_t Clr,
-//   as7341_gain_t gain_high,
-//   long AS7341_IntegrationTime_high
-// );  

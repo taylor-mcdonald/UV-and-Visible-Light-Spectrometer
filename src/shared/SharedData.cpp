@@ -1,7 +1,8 @@
 #include "SharedData.h"
 
 // ================== Global Variables ==================
-volatile unsigned long last_interrupt_time = 0; // Global or static in ISR
+volatile unsigned long last_interrupt_time_fwd = 0; // Global or static in ISR
+volatile unsigned long last_interrupt_time_bk = 0; // Global or static in ISR
 
 // ====== FLAGS ======
 volatile bool UVsensorReadFlag = false;
@@ -9,7 +10,7 @@ volatile bool FWD_buttonReadFlag = false;
 volatile bool BK_buttonReadFlag = false;
 volatile bool AS7341sensorInterruptFlag = false;
 volatile bool AS7341sensorReadFlag = false;
-
+volatile bool AS7341sensorSMUXFlag = false;
 
 // struct UVReading {
 //   float uva;
