@@ -81,6 +81,8 @@ void setup() {
   display.println("AS7341 Sensor Ready");
   display.display();
 
+  //testAS7341_INT_simple();
+
 
   // --- FreeRTOS tasks ---
   startScreenTask();
@@ -100,4 +102,3 @@ void setup() {
 
 void loop() {
 }
-

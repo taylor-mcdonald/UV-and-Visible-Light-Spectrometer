@@ -52,6 +52,9 @@ void initAS7341Sensor(void) {
 
   // Set duty
   ledcWrite(PWM_CHANNEL, duty);
+
+  // Setup pin to read the INT Pin.  Do not enable the interrupt yet
+  pinMode(SP_RDY_PIN, INPUT_PULLUP);
   
   if (!as7341.begin()){
     Serial.println("Could not find AS7341");
@@ -62,7 +65,7 @@ void initAS7341Sensor(void) {
   delay(10); // wait for the oscillator to stabilize
 
   //Enabling the gpio_in_en (Bit 2) and gpio_out(Bit 1) in GPIO register 0xBE
-  as7341.writeRegister(AS7341_GPIO2, 0x04); // set bits 1 and clear bit 2 
+  //as7341.writeRegister(AS7341_GPIO2, 0x04); // set bits 1 and clear bit 2 
 
   // set the INT_SEL bit in the CONFIG register to 1 
   //as7341.enableINTsel(false); // INT pin asserts when a measurement is complete (hopefully)
@@ -75,9 +78,9 @@ void initAS7341Sensor(void) {
   
   as7341.writeRegister(AS7341_WTIME, 89); // set the WTIME to 89 (250 ms wait time between measurements)
   
-  as7341.setGain(AS7341_GAIN_1X); // set a gain
+  as7341.setGain(AS7341_GAIN_2X); // set a gain
 
-  as7341.enableSpectralAutoGainControl(true); // enable auto gain control
+  as7341.enableSpectralAutoGainControl(false); // enable auto gain control
   as7341.enableFlickerAutoGainControl(false); // enable auto gain control
 
   
@@ -91,142 +94,66 @@ void initAS7341Sensor(void) {
   // Write 1 to bit 4 of the ENABLE register (0x80) to start the SMUX configuration, then
   // waits for the same bit to read 0 again.
   AS7341_SMUX_low = true; // true = F1-F4, false = F5-F8
-  as7341.setSMUXLowChannels(AS7341_SMUX_low); //F1F4_Clear_NIR
+  //as7341.setSMUXLowChannels(AS7341_SMUX_low); //F1F4_Clear_NIR
+
+  // Enable special interrupt (SINT_SMUX). As soon as SMUX command has finished interrupt is activated.
+  // Register: CFG9 / 0xB2
+  as7341.writeRegister(0xB2, 0x10);
+  // Enable special interrupt SIEN | Register: INTENAB / 0xF9
+  as7341.writeRegister(0xF9, 0x01);
+  // Write SMUX configuration from RAM to set SMUX chain | Register: CFG6 / 0xAF
+  as7341.writeRegister(0xAF, 0x10);
+  
+  if (AS7341_SMUX_low) {
+    Serial.println("Setting SMUX to Low channels (F1-F4, Clear, NIR)");
+    as7341.my_setup_F1F4_Clear_NIR();
+  } else {
+    Serial.println("Setting SMUX to High channels (F5-F8, Clear, NIR)");
+    as7341.my_setup_F5F8_Clear_NIR();
+  } 
+
+  // Start SMUX command while keeping power and wait on (SMUXEN = 1, PON = 1, WEN = 1)
+  as7341.writeRegister(0x80, 0b00011001);
+
+  // Should be ready for an interrupt now.
+  while(digitalRead(SP_RDY_PIN)==1){
+    Serial.println("Waiting on SMUX to set");
+  }
+
   time2 = millis(); 
   Serial.print("Time to set SMUX low channels: ");
   Serial.println(time2 - time1);
 
-  as7341.enableSpectralInterrupt(true); // enable spectral interrupts
-  as7341.enableFlickerDetection(false); // disable flicker detection
-  as7341.enableFlickerAutoGainControl(false); // disable flicker auto gain control
+  as7341.writeRegister(AS7341_STATUS, 0xFF); // clear all status bits
 
-  as7341.enableSpectralAutoGainControl(true); // enable auto gain control
-  as7341.enableWait(true); // enable wait
+  // as7341.enableSpectralInterrupt(true); // enable spectral interrupts
+  // as7341.enableFlickerDetection(false); // disable flicker detection
+  // as7341.enableFlickerAutoGainControl(false); // disable flicker auto gain control
 
-  // Set the device mode. Register 0x70 requires setting the BANK bit first.
-  as7341.setBank(true); // set to BANK1
-  as7341.setMode(SYNS); // SYNC mode
-  as7341.setBank(false); // set to BANK0
+  // as7341.enableSpectralAutoGainControl(false); // enable auto gain control
+  // as7341.enableWait(true); // enable wait
+
+  // // Set the device mode. Register 0x70 requires setting the BANK bit first.
+  // as7341.setBank(true); // set to BANK1
+  // as7341.setMode(SYNS); // SYNC mode
+  // as7341.setBank(false); // set to BANK0
+
+  /*
+  1. Enable system interrupts
+  The main interrupt control register is INTENAB (0xF9).
+  Each bit enables one class of interrupt:
+  Bit 7: Spectral saturation / Flicker detection
+  Bit 3: Spectral measurement complete (AINT)
+  Bit 2: FIFO full
+  Bit 1: Calibration complete
+  Bit 0: System error
+  */
+  as7341.writeRegister(AS7341_INTENAB, 0b10001111);
 
   // Do a dummy check of the registers just written to.
-  // Serial.print("CFG8 (0xB1) reads: ");
-  // Serial.println(as7341.getRegister(AS7341_CFG8), BIN);
-  // Serial.print("Bit 2 = ");
-  // Serial.println(as7341.getSP_AGC() ? "SP_AGC ON" : "SP_AGC OFF");
   printAS7341registers(); 
   
   as7341.writeRegister(AS7341_STATUS, 0xFF); // clear all status bits
-  Serial.println("Starting first measurement...");
-  // Start the first measurement
-  time1 = millis();
-  as7341.enableSpectralMeasurement(true); // start spectral measurement
-
-  delay(10);
-
-  // Wait for the first measurement to complete
-  while (digitalRead(SP_RDY_PIN) == LOW) {
-    delay(1);
-  } 
-  time2 = millis();
-  Serial.print("Time for first measurement: ");
-  Serial.println(time2 - time1);
-
-  // get the results from the first measurement
-  // get the saturation status and gain from the ASTATUS register
-  // uint8_t astat = as7341.getRegister(AS7341_ASTATUS_);
-
-  // Serial.print("Saturation status from ASTAT: ");
-  // Serial.println(astat, BIN);
-  // Serial.print("  Bit 7 = ");
-  // Serial.println((astat & 0x80) ? "SATURATED" : "NOT SATURATED");
-  // Serial.print("Gain: ");
-  // Serial.println(astat & 0x0F);
-
-  as7341.getResults(AS7341_Buffer);
-  
-  Serial.print("Saturated: ");
-  Serial.println(AS7341_Buffer.saturation ? "YES" : "NO");
-
-  Serial.print("Gain code: ");
-  Serial.println(AS7341_Buffer.gain);
-
-  Serial.print(AS7341_SMUX_low ? "F1-F4" : "F5-F8");
-  Serial.print(AS7341_SMUX_low ? "F1: " : "F5: ");
-  Serial.println(AS7341_Buffer.F1_F5);
-  Serial.print(AS7341_SMUX_low ? "F2: " : "F6: ");
-  Serial.println(AS7341_Buffer.F2_F6);
-  Serial.print(AS7341_SMUX_low ? "F3: " : "F7: ");
-  Serial.println(AS7341_Buffer.F3_F7);
-  Serial.print(AS7341_SMUX_low ? "F4: " : "F8: ");
-  Serial.println(AS7341_Buffer.F4_F8);
-  Serial.print(AS7341_SMUX_low ? "NIR: " : "NIR: ");
-  Serial.println(AS7341_Buffer.NIR);
-  Serial.print(AS7341_SMUX_low ? "Clear: " : "Clear: ");
-  Serial.println(AS7341_Buffer.Clr);
-
-
-  // print the rest of the status registers for debugging
-  printAS7341registers(); 
-
-  // Configure the SMUX for the other channels
-  //as7341.enableSpectralMeasurement(false); // stop spectral measurement
-  //time1 = millis();
-  AS7341_SMUX_low = false; // true = F1-F4, false = F5-F8
-  as7341.setSMUXLowChannels(AS7341_SMUX_low); //F1F4_Clear_NIR
-  //time2 = millis(); 
-  //Serial.print("Time to set SMUX high channels: ");
-  //Serial.println(time2 - time1);
- 
-  //as7341.enableFlickerDetection(false); // disable flicker detection
-  //as7341.enableFlickerAutoGainControl(false); // disable flicker auto gain control
- // as7341.enableSpectralAutoGainControl(true); // enable auto gain control
-
-  time3 = millis();
-  Serial.print("Ready for second measurement...  ");
-  Serial.println(time3-time1);
-  // Start the first measurement
-  //as7341.enableSpectralMeasurement(true); // start spectral measurement
-
-  // Wait for the first measurement to complete
-  while (digitalRead(SP_RDY_PIN) == LOW) {
-    delay(1);
-  } 
-  time4 = millis();
-  Serial.print("Time for second measurement: ");
-  Serial.println(time4 - time3);
-  Serial.print("Time from start of first measurment to start of second measurement: ");
-  Serial.println(time3 - time1);
-
-  // get the results from the measurement
-  // get the saturation status and gain from the ASTATUS register
-  //astat = as7341.getRegister(AS7341_ASTATUS_);
-
-  as7341.getResults(AS7341_Buffer);
-  
-  Serial.print("Saturated: ");
-  Serial.println(AS7341_Buffer.saturation ? "YES" : "NO");
-
-  Serial.print("Gain code: ");
-  Serial.println(AS7341_Buffer.gain);
-
-  Serial.print(AS7341_SMUX_low ? "F1-F4" : "F5-F8");
-  Serial.print(AS7341_SMUX_low ? "F1: " : "F5: ");
-  Serial.println(AS7341_Buffer.F1_F5);
-  Serial.print(AS7341_SMUX_low ? "F2: " : "F6: ");
-  Serial.println(AS7341_Buffer.F2_F6);
-  Serial.print(AS7341_SMUX_low ? "F3: " : "F7: ");
-  Serial.println(AS7341_Buffer.F3_F7);
-  Serial.print(AS7341_SMUX_low ? "F4: " : "F8: ");
-  Serial.println(AS7341_Buffer.F4_F8);
-  Serial.print(AS7341_SMUX_low ? "NIR: " : "NIR: ");
-  Serial.println(AS7341_Buffer.NIR);
-  Serial.print(AS7341_SMUX_low ? "Clear: " : "Clear: ");
-  Serial.println(AS7341_Buffer.Clr);
-
-  printAS7341registers();
-
-
-  delay(1000);
 
   return;
 }
@@ -276,8 +203,13 @@ void startSpectralTasks() {
 
 void initAS7341interrupt(){
   //Assign the AS7341 interrupt output to work as an interrupt on the ESP32
-  pinMode(SP_RDY_PIN, INPUT);
-  attachInterrupt(digitalPinToInterrupt(SP_RDY_PIN), AS7341InterruptHandler, RISING);
+
+  attachInterrupt(digitalPinToInterrupt(SP_RDY_PIN), AS7341InterruptHandler, FALLING);
+
+  xTaskNotifyGive(as7341SmuxTaskHandle);
+
+  // Start measurment command while keeping power and wait on (SP_EN = 1, PON = 1, WEN = 1)
+  //as7341.writeRegister(0x80, 0b00001011);
   return;
 }
 
@@ -292,7 +224,7 @@ void AS7341InterruptTask(void *pvParameters) {
   for (;;) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-    //Serial.println("AS7341 Interrupt detected");
+    Serial.println("AS7341 Interrupt detected");
 
     // Read all the interrupt status registers to clear the interrupt
     uint8_t stat = as7341.getRegister(AS7341_STAT);
@@ -301,6 +233,16 @@ void AS7341InterruptTask(void *pvParameters) {
     uint8_t stat5 = as7341.getRegister(AS7341_STATUS5);
     uint8_t stat6 = as7341.getRegister(AS7341_STATUS6);
     uint8_t FDstat = as7341.getRegister(AS7341_FD_STATUS);
+    uint8_t INTENABstat = as7341.getRegister(AS7341_INTENAB);
+
+    // Print raw register values
+    Serial.print("STAT    (0x71): ");  Serial.println(stat,   BIN);
+    Serial.print("STATUS2 (0xA3): ");  Serial.println(stat2,  BIN);
+    Serial.print("STATUS3 (0xA4): ");  Serial.println(stat3,  BIN);
+    Serial.print("STATUS5 (0xA6): ");  Serial.println(stat5,  BIN);
+    Serial.print("STATUS6 (0xA7): ");  Serial.println(stat6,  BIN);
+    Serial.print("FDSTAT  (0xDB): ");  Serial.println(FDstat, BIN);
+    Serial.print("INTENAB (0xF9): ");  Serial.println(INTENABstat, BIN);
 
     bool ASAT = (stat >> 7) & 0x01; // Spectral and Flicker Detect interrupt
     bool AINT = (stat >> 3) & 0x01; // Spectral Channel interrupt
@@ -337,7 +279,10 @@ void AS7341InterruptTask(void *pvParameters) {
         // If this bit is set, the SMUX operation is complete and we can start a new measurement
         // What stage are we in? Maybe it doesn't matter, just start a new measurement
         Serial.println("SMUX operation complete, starting new measurement...");
-        as7341.enableSpectralMeasurement(true); // start spectral measurement
+        // Clear this flag
+        as7341.writeRegister(AS7341_STATUS5, 0x04);  // clear SINT_SMUX
+        //as7341.enableSpectralMeasurement(true); // start spectral measurement
+        as7341.writeRegister(0x80, 0b00001011);   //start measurement bit 1, keep bit 0 (PON) on and bit 3 (WAIT) on 
       }
 
       // Check for Flicker Detection interrupt on bit 3 of STATUS 5
@@ -414,14 +359,33 @@ void AS7341_Set_SMUX_Task(void *pvParameters) {
   for (;;) {
     // Wait here until AS7341InterruptTask wakes us up
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    Serial.println("Setting the SMUX!");
 
-      if (AS7341_SMUX_low) {
-        Serial.println("Setting SMUX to HIGH channels (F1-F4, Clear, NIR)");
-      } else {
-        Serial.println("Setting SMUX to LOW channels (F5-F8, Clear, NIR)");
-      }
-      as7341.setSMUX(AS7341_SMUX_low);  
-    }
+    // turn off SP_EN
+    as7341.writeRegister(0x80, 0b00001001);
+
+    // Enable special interrupt (SINT_SMUX). As soon as SMUX command has finished interrupt is activated.
+    // Register: CFG9 / 0xB2
+    as7341.writeRegister(0xB2, 0x10);
+    // Enable special interrupt SIEN | Register: INTENAB / 0xF9
+    as7341.writeRegister(0xF9, 0x01);
+    // Write SMUX configuration from RAM to set SMUX chain | Register: CFG6 / 0xAF
+    as7341.writeRegister(0xAF, 0x10);
+    
+    if (AS7341_SMUX_low) {
+      Serial.println("Setting SMUX to LOW channels (F1-F4, Clear, NIR)");
+      as7341.my_setup_F1F4_Clear_NIR();
+    } else {
+      Serial.println("Setting SMUX to HIGH channels (F5-F8, Clear, NIR)");
+      as7341.my_setup_F5F8_Clear_NIR();
+    } 
+
+    // Start SMUX command while keeping power and wait on (SMUXEN = 1, PON = 1, WEN = 1)
+    as7341.writeRegister(0x80, 0b00011001);
+
+
+    // Should be ready for an interrupt now.
+  }
 }
 
 void AS7341_Read_Results_Task(void *pvParameters) {
@@ -604,4 +568,60 @@ void printAS7341registers(void) {
 
 
   return;
+}
+
+
+void testAS7341_INT_simple() {
+  const int intPin = SP_RDY_PIN;
+  pinMode(intPin, INPUT_PULLUP);
+
+  Serial.println(F("\n=== AS7341 INT test start ==="));
+
+  // 1) Disable any AGC/SP_AGC/flicker AGC for the test
+  // (set CFG8 to 0 -- conservative test; adjust if your hardware needs certain bits)
+  as7341.writeRegister(0xB1, 0x00); // CFG8 -> 0 (turn off spectral AGC/flicker AGC)
+  Serial.print("CFG8 now reads: ");
+  printByteBinary(as7341.getRegister(0xB1));
+
+  // 2) Enable only ADC-ready interrupt (AINT = bit 3)
+  as7341.writeRegister(0xF9, 0x08); // INTENAB = 0x08 (AINT only)
+  Serial.print("INTENAB set to: ");
+  printByteBinary(as7341.getRegister(0xF9));
+
+  // 3) Set persistence (trigger on every measurement)
+  as7341.writeRegister(0x0C, 0x01); // PERS = 1
+  Serial.print("PERS readback: ");
+  printByteBinary(as7341.getRegister(0x0C));
+
+  // 4) Short integration time to make test quick
+  as7341.setATIME(10);
+  as7341.setASTEP(50);
+  Serial.print("ATIME: "); Serial.println(as7341.getATIME());
+  Serial.print("ASTEP: "); Serial.println(as7341.getASTEP());
+
+  // 5) Start measurement (spectral)
+  as7341.enableSpectralMeasurement(true);
+  Serial.println("Spectral measurement started...");
+
+  // 6) Poll registers and INT pin for a few seconds
+  for (int i = 0; i < 20; ++i) {
+    uint8_t astat = as7341.getRegister(0x95);   // ASTATUS / ASTATUS
+    uint8_t s2    = as7341.getRegister(0x96);   // STATUS2
+    uint8_t s3    = as7341.getRegister(0xA4);   // STATUS3
+    uint8_t stat  = as7341.getRegister(0x71);   // STAT (if your driver uses this)
+    int pinState = digitalRead(intPin);
+
+    Serial.print("loop "); Serial.print(i);
+    Serial.print(" | ASTAT: "); printByteBinary(astat);
+    Serial.print(" | STATUS2: "); printByteBinary(s2);
+    Serial.print(" | STATUS3: "); printByteBinary(s3);
+    Serial.print(" | STAT: "); printByteBinary(stat);
+    Serial.print(" | INT pin: "); Serial.println(pinState ? "HIGH" : "LOW");
+
+    delay(250);
+  }
+
+  as7341.enableSpectralMeasurement(false);
+  Serial.println("Spectral measurement stopped.");
+  Serial.println("=== AS7341 INT test end ===\n");
 }

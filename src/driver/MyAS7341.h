@@ -363,6 +363,9 @@ public:
   bool enableFlickerDetection(bool enable_fd);
   void setSMUX(bool f1_f4);
   bool enableSMUX_non_block(void);
+  void my_setup_F1F4_Clear_NIR(void);
+  void my_setup_F5F8_Clear_NIR(void);
+  void my_FDConfig(void);
 
 protected:
   virtual bool _init(int32_t sensor_id);

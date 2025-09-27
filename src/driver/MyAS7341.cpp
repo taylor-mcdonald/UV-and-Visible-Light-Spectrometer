@@ -313,14 +313,15 @@ void Adafruit_AS7341::setSMUXLowChannels(bool f1_f4) {
 }
 
 void Adafruit_AS7341::setSMUX(bool f1_f4) {
-  enableSpectralMeasurement(false);
-  setSMUXCommand(AS7341_SMUX_CMD_WRITE);
+  
+
+  //setSMUXCommand(AS7341_SMUX_CMD_WRITE);
   if (f1_f4) {
     setup_F1F4_Clear_NIR();
   } else {
     setup_F5F8_Clear_NIR();
   }
-  enableSMUX_non_block();
+  //enableSMUX_non_block();
 }
 
 /**
@@ -902,9 +903,7 @@ void Adafruit_AS7341::setup_F1F4_Clear_NIR() {
   writeRegister(byte(0x02), byte(0x00)); // Reserved or disabled
   writeRegister(byte(0x03), byte(0x00)); // F8 left disabled
   writeRegister(byte(0x04), byte(0x00)); // F6 left disabled
-  writeRegister(
-      byte(0x05),
-      byte(0x42)); // F4 left connected to ADC3/f2 left connected to ADC1
+  writeRegister(byte(0x05), byte(0x42)); // F4 left connected to ADC3/f2 left connected to ADC1
   writeRegister(byte(0x06), byte(0x00)); // F5 left disbled
   writeRegister(byte(0x07), byte(0x00)); // F7 left disbled
   writeRegister(byte(0x08), byte(0x50)); // CLEAR connected to ADC4
@@ -919,6 +918,38 @@ void Adafruit_AS7341::setup_F1F4_Clear_NIR() {
   writeRegister(byte(0x11), byte(0x50)); // CLEAR right connected to AD4
   writeRegister(byte(0x12), byte(0x00)); // Reserved or disabled
   writeRegister(byte(0x13), byte(0x06)); // NIR connected to ADC5
+}
+
+void Adafruit_AS7341::my_setup_F1F4_Clear_NIR() {
+    // Configuration data for SMUX (0x00–0x13)
+    const uint8_t smux_config[0x14] = {
+        0x30, // 0x00: F3 left -> ADC2
+        0x01, // 0x01: F1 left -> ADC0
+        0x00, // 0x02: disabled
+        0x00, // 0x03: F8 left disabled
+        0x00, // 0x04: F6 left disabled
+        0x42, // 0x05: F4 left -> ADC3, F2 left -> ADC1
+        0x00, // 0x06: F5 left disabled
+        0x00, // 0x07: F7 left disabled
+        0x50, // 0x08: Clear left -> ADC4
+        0x00, // 0x09: F5 right disabled
+        0x00, // 0x0A: F7 right disabled
+        0x00, // 0x0B: reserved
+        0x20, // 0x0C: F2 right -> ADC1
+        0x04, // 0x0D: F4 right -> ADC3
+        0x00, // 0x0E: F6/F8 right disabled
+        0x30, // 0x0F: F3 right -> ADC2
+        0x01, // 0x10: F1 right -> ADC0
+        0x50, // 0x11: Clear right -> ADC4
+        0x00, // 0x12: reserved
+        0x06  // 0x13: NIR -> ADC5
+    };
+
+    // Write all 20 bytes starting at SMUX register 0x00
+    Wire.beginTransmission(AS7341_I2CADDR_DEFAULT);
+    Wire.write(0x00);                // starting register
+    Wire.write(smux_config, 0x14);   // write all bytes sequentially
+    Wire.endTransmission();
 }
 
 /**
@@ -949,6 +980,39 @@ void Adafruit_AS7341::setup_F5F8_Clear_NIR() {
   writeRegister(byte(0x13), byte(0x06)); // NIR connected to ADC5
 }
 
+void Adafruit_AS7341::my_setup_F5F8_Clear_NIR() {
+    // Configuration data for SMUX (0x00–0x13)
+    // SMUX Config for F5,F6,F7,F8,NIR,Clear
+  const uint8_t smux_config_F5F8_Clear_NIR[0x14] = {
+      0x00, // 0x00: F3 left disabled
+      0x00, // 0x01: F1 left disabled
+      0x00, // 0x02: reserved/disabled
+      0x40, // 0x03: F8 left -> ADC3
+      0x02, // 0x04: F6 left -> ADC1
+      0x00, // 0x05: F4/F2 disabled
+      0x10, // 0x06: F5 left -> ADC0
+      0x03, // 0x07: F7 left -> ADC2
+      0x50, // 0x08: Clear left -> ADC4
+      0x10, // 0x09: F5 right -> ADC0
+      0x03, // 0x0A: F7 right -> ADC2
+      0x00, // 0x0B: reserved/disabled
+      0x00, // 0x0C: F2 right disabled
+      0x00, // 0x0D: F4 right disabled
+      0x24, // 0x0E: F8 right -> ADC2, F6 right -> ADC1
+      0x00, // 0x0F: F3 right disabled
+      0x00, // 0x10: F1 right disabled
+      0x50, // 0x11: Clear right -> ADC4
+      0x00, // 0x12: reserved
+      0x06  // 0x13: NIR -> ADC5
+  };
+
+  // Write all 20 bytes starting at SMUX register 0x00
+  Wire.beginTransmission(AS7341_I2CADDR_DEFAULT);
+  Wire.write(0x00);                // starting register
+  Wire.write(smux_config_F5F8_Clear_NIR, 0x14);   // write all bytes sequentially
+  Wire.endTransmission();
+}
+
 /**
  * @brief Configure SMUX for flicker detection
  *
@@ -975,8 +1039,40 @@ void Adafruit_AS7341::FDConfig() {
   writeRegister(byte(0x10), byte(0x00)); // disabled
   writeRegister(byte(0x11), byte(0x00)); // disabled
   writeRegister(byte(0x12), byte(0x00)); // Reserved or disabled
-  writeRegister(byte(0x13),
-                byte(0x60)); // Flicker connected to ADC5 to left of 0x13
+  writeRegister(byte(0x13), byte(0x60)); // Flicker connected to ADC5 to left of 0x13
+}
+
+void Adafruit_AS7341::my_FDConfig() {
+    // Configuration data for SMUX (0x00–0x13)
+    // SMUX Config for Flicker
+  const uint8_t smux_config_FD[0x14] = {
+      0x00, // 0x00: disabled
+      0x00, // 0x01: disabled
+      0x00, // 0x02: reserved/disabled
+      0x00, // 0x03: disabled
+      0x00, // 0x04: disabled
+      0x00, // 0x05: disabled
+      0x00, // 0x06: disabled
+      0x00, // 0x07: disabled
+      0x00, // 0x08: disabled
+      0x00, // 0x09: disabled
+      0x00, // 0x0A: disabled
+      0x00, // 0x0B: reserved/disabled
+      0x00, // 0x0C: disabled
+      0x00, // 0x0D: disabled
+      0x00, // 0x0E: disabled
+      0x00, // 0x0F: disabled
+      0x00, // 0x10: disabled
+      0x00, // 0x11: disabled
+      0x00, // 0x12: reserved/disabled
+      0x60  // 0x13: Flicker -> ADC6
+  };
+
+  // Write all 20 bytes starting at SMUX register 0x00
+  Wire.beginTransmission(AS7341_I2CADDR_DEFAULT);
+  Wire.write(0x00);                // starting register
+  Wire.write(smux_config_FD, 0x14);   // write all bytes sequentially
+  Wire.endTransmission();
 }
 
 // TODO; check for valid values

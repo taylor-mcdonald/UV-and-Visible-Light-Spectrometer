@@ -20,3 +20,5 @@ void AS7341_Read_Results_Task(void *pvParameters);
 //void AS7341sensorTask(void *pvParameters);
 
 void printAS7341registers(void);
+
+void testAS7341_INT_simple(void);
