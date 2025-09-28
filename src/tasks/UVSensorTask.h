@@ -8,6 +8,7 @@
 
 
 void UVsensorTask(void *pvParameters);
+void startUVsensorMeasurementTask(void *pvParameters);
 
 void initUVSensor(void);
 void startUVSensorTask(void);

@@ -17,6 +17,7 @@
 #define SENSOR_TASK_DELAY 50   // safety delay if needed
 #define AHT_UPDATE_MS 1000
 #define DS18_UPDATE_MS 1000
+#define UV_MEASUREMENT_INTERVAL 750 // time between UV measurements
 #define debounce_delay 150
 
 // AS7341 Definitions

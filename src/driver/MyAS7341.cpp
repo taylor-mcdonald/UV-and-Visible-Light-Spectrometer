@@ -163,7 +163,7 @@ bool Adafruit_AS7341::getResults(AS7341Reading &measurment) {
 
   // set the starting register for a burst read
   Adafruit_BusIO_Register results_data_reg =
-      Adafruit_BusIO_Register(i2c_dev, AS7341_ASTATUS, 1);
+      Adafruit_BusIO_Register(i2c_dev, AS7341_ASTATUS_, 1);
 
   // Read the status byte and all 6 ADC channels (2 bytes each)
   if (!results_data_reg.read(buffer, 13)) {

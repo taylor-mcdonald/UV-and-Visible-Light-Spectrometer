@@ -40,6 +40,13 @@ volatile bool AS7341sensorSMUXFlag = false;
 
 volatile bool AS7341_SMUX_low = true; // true = F1-F4, false = F5-F8
 
+volatile uint8_t AS7341_currentGain = 1; // default gain 1x
+volatile uint16_t AS7341_current_AStep = 599;
+volatile uint8_t AS7341_current_ATime = 29;
+
+volatile long AS7341_Time1 = 0;
+volatile long AS7341_Time2 = 0;
+
 // struct AHT21Reading {
 //   float temp;
 //   float humid;

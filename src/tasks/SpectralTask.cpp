@@ -71,16 +71,48 @@ void initAS7341Sensor(void) {
   //as7341.enableINTsel(false); // INT pin asserts when a measurement is complete (hopefully)
 
   // (atime + 1) * (astep + 1) * 2.78 / 1000 = integration time in ms
-  as7341.setATIME(29); // 
-  as7341.setASTEP(599); 
-  // Set the integration time for each channel to 50 ms
+  as7341.setATIME(AS7341_current_ATime); // 
+  as7341.setASTEP(AS7341_current_AStep); 
+  // Defaults the integration time for each channel to 50 ms
   // (29 + 1) * (599 + 1) * 2.78 / 1000 = 50.04 ms  
   
   as7341.writeRegister(AS7341_WTIME, 89); // set the WTIME to 89 (250 ms wait time between measurements)
-  
-  as7341.setGain(AS7341_GAIN_2X); // set a gain
 
-  as7341.enableSpectralAutoGainControl(false); // enable auto gain control
+  // Need to set Spectral Threshold HIGH SP_TH_H_MSB Register (Address 0x87) and SP_TH_H_LSB Register (Address 0x86)
+  // to a value that is high enough to let AGC work properly.
+  as7341.writeRegister(0x87, 0xE6);               // set high threshold to 80% 0xFFFF -> CCCC
+  as7341.writeRegister(0x86, 0x66);               //                       90% 0xFFFF -> E666
+                                                  //                       95% 0xFFFF -> F333
+                                                  //                       98% 0xFFFF -> F999
+
+  // Need to set Spectral Threshold LOW SP_TH_L_MSB Register (Address 0x85) and SP_TH_L_LSB Register (Address 0x84)
+  // to a value that is high enough to let AGC work properly.
+  as7341.writeRegister(0x85, 0x19);               // set high threshold to 20% 0xFFFF -> 3333
+  as7341.writeRegister(0x84, 0x99);               //                       10% 0xFFFF -> 1999
+                                                  //                       5% 0xE666 -> 0CCC
+
+  
+  //as7341.setGain(AS7341_currentGain); // set a gain
+  as7341.writeRegister(AS7341_CFG1, AS7341_currentGain); // set the gain in the CFG1 register
+
+  // Enable built-in spectral AGC
+uint8_t cfg8 = as7341.getRegister(AS7341_CFG8) | 0x04; // Set SP_AGC bit
+as7341.writeRegister(AS7341_CFG8, cfg8);
+
+// Configure AGC hysteresis in CFG10 (0xB3)
+// Current value appears to be default - you might want to adjust
+as7341.writeRegister(0xB3, 0xC2); // AGC_H=3 (87.5%), AGC_L=0 (12.5%)
+
+// Disable threshold interrupts, enable only completion interrupts  
+as7341.writeRegister(AS7341_INTENAB, 0x81); // Only ASIEN + SIEN
+
+// Set thresholds to never trigger
+as7341.writeRegister(0x84, 0x00); // Low LSB = 0
+as7341.writeRegister(0x85, 0x00); // Low MSB = 0  
+as7341.writeRegister(0x86, 0xFF); // High LSB = 255
+as7341.writeRegister(0x87, 0xFF); // High MSB = 255 (65535 total)
+
+ // as7341.enableSpectralAutoGainControl(false); // enable auto gain control
   as7341.enableFlickerAutoGainControl(false); // enable auto gain control
 
   
@@ -148,7 +180,10 @@ void initAS7341Sensor(void) {
   Bit 1: Calibration complete
   Bit 0: System error
   */
-  as7341.writeRegister(AS7341_INTENAB, 0b10001111);
+  //as7341.writeRegister(AS7341_INTENAB, 0b10001111);
+
+// Disable threshold interrupts, enable only completion interrupts  
+as7341.writeRegister(AS7341_INTENAB, 0x81); // Only ASIEN + SIEN
 
   // Do a dummy check of the registers just written to.
   printAS7341registers(); 
@@ -202,8 +237,20 @@ void startSpectralTasks() {
 }
 
 void initAS7341interrupt(){
-  //Assign the AS7341 interrupt output to work as an interrupt on the ESP32
+    // Enable the required interrupts in INTENAB (0xF9)
+    // Bit 7: ASIEN (saturation), Bit 3: SP_IEN (spectral), Bit 0: SIEN (system)
+    as7341.writeRegister(AS7341_INTENAB, 0x89); // Enable ASIEN + SP_IEN + SIEN
+    
+    // Disable threshold interrupts, enable only completion interrupts  
+    //as7341.writeRegister(AS7341_INTENAB, 0x81); // Only ASIEN + SIEN
 
+    // Enable SMUX completion interrupt in CFG9 (0xB2)
+    as7341.writeRegister(0xB2, 0x10); // Enable SIEN_SMUX
+    
+    // Clear any existing interrupt flags
+    as7341.writeRegister(AS7341_STATUS, 0xFF);
+  
+  //Assign the AS7341 interrupt output to work as an interrupt on the ESP32
   attachInterrupt(digitalPinToInterrupt(SP_RDY_PIN), AS7341InterruptHandler, FALLING);
 
   xTaskNotifyGive(as7341SmuxTaskHandle);
@@ -226,8 +273,19 @@ void AS7341InterruptTask(void *pvParameters) {
 
     Serial.println("AS7341 Interrupt detected");
 
+    // Read ENABLE and some config registers for troubleshooting
+    uint8_t enable = as7341.getRegister(AS7341_ENABLE);
+    uint8_t atime = as7341.getRegister(AS7341_ATIME);
+    uint8_t astepL = as7341.getRegister(AS7341_ASTEP_L);
+    uint8_t astepH = as7341.getRegister(AS7341_ASTEP_H);
+    uint16_t astep = (astepH << 8) | astepL;
+    uint8_t wtime = as7341.getRegister(AS7341_WTIME); 
+    uint8_t cfg1 = as7341.getRegister(AS7341_CFG1);
+    uint8_t cfg8 = as7341.getRegister(AS7341_CFG8);
+    uint8_t cfg9 = as7341.getRegister(AS7341_CFG9);
+
     // Read all the interrupt status registers to clear the interrupt
-    uint8_t stat = as7341.getRegister(AS7341_STAT);
+    uint8_t stat = as7341.getRegister(AS7341_STATUS);
     uint8_t stat2 = as7341.getRegister(AS7341_STATUS2);
     uint8_t stat3 = as7341.getRegister(AS7341_STATUS3);
     uint8_t stat5 = as7341.getRegister(AS7341_STATUS5);
@@ -236,7 +294,16 @@ void AS7341InterruptTask(void *pvParameters) {
     uint8_t INTENABstat = as7341.getRegister(AS7341_INTENAB);
 
     // Print raw register values
-    Serial.print("STAT    (0x71): ");  Serial.println(stat,   BIN);
+    Serial.println("Enable and Config Registers:");
+    Serial.print("ENABLE (0x80): ");  Serial.println(enable, BIN);
+    Serial.print("CFG1   (0xA9): ");  Serial.println(cfg1,   BIN);
+    Serial.print("CFG8   (0xB1): ");  Serial.println(cfg8,   BIN);
+    Serial.print("CFG9   (0xB2): ");  Serial.println(cfg9,   BIN);
+    Serial.print("ATIME  (0x81): ");  Serial.println(atime);
+    Serial.print("ASTEP(0xCA/B): ");  Serial.println(astep);
+    Serial.print("WTIME  (0x83): ");  Serial.println(wtime);
+    Serial.println("AS7341 Interrupt Status Registers:");
+    Serial.print("STATUS  (0x93): ");  Serial.println(stat,   BIN);
     Serial.print("STATUS2 (0xA3): ");  Serial.println(stat2,  BIN);
     Serial.print("STATUS3 (0xA4): ");  Serial.println(stat3,  BIN);
     Serial.print("STATUS5 (0xA6): ");  Serial.println(stat5,  BIN);
@@ -280,7 +347,7 @@ void AS7341InterruptTask(void *pvParameters) {
         // What stage are we in? Maybe it doesn't matter, just start a new measurement
         Serial.println("SMUX operation complete, starting new measurement...");
         // Clear this flag
-        as7341.writeRegister(AS7341_STATUS5, 0x04);  // clear SINT_SMUX
+        //as7341.writeRegister(AS7341_STATUS5, 0x04);  // clear SINT_SMUX
         //as7341.enableSpectralMeasurement(true); // start spectral measurement
         as7341.writeRegister(0x80, 0b00001011);   //start measurement bit 1, keep bit 0 (PON) on and bit 3 (WAIT) on 
       }
@@ -297,10 +364,10 @@ void AS7341InterruptTask(void *pvParameters) {
     }
 
     // Check for Saturation interrupt
-    if (ASAT) {
-      Serial.println("Saturation Interrupt, Checking SATUS2 for more info... ");
-      printByteBinary(stat2);
-
+    // if (ASAT) {
+    //   Serial.println("Saturation Interrupt, Checking SATUS2 for more info... ");
+    //   printByteBinary(stat2);
+    // }
       // Check Bit 6 of STATUS 2 to see if a measurement was completed successfully
       if (AVALID) {
         Serial.println("Measurement complete, reading results...");
@@ -321,21 +388,29 @@ void AS7341InterruptTask(void *pvParameters) {
         Serial.print("FDSAT_DIGITAL: ");
         Serial.println(FDSAT_DIGITAL ? "YES" : "NO");
       }
-    }
+    
 
-    // Check for Spectral Channel Interrupt
-    if (AINT) {
-      Serial.println("Spectral Channel Interrupt, Checking SATUS3 for more info... ");
-      printByteBinary(stat3);
+    // // Check for Spectral Channel Interrupt
+    // if (AINT) {
+    //   Serial.println("Spectral Channel Interrupt, Checking SATUS3 for more info... ");
+    //   printByteBinary(stat3);
 
-      // Check Bit 4 and 5 of STATUS 3 to see if a channel was outside the thresholds
-      if (INT_SP_H) {
-        Serial.println("One or more channels above high threshold");
-      }
-      if (INT_SP_L) {
-        Serial.println("One or more channels below low threshold");
-      }
-    }
+    //   // Check Bit 4 and 5 of STATUS 3 to see if a channel was outside the thresholds
+    //   if (INT_SP_H) {
+    //     Serial.println("One or more channels above high threshold");
+    //     AS7341_currentGain--;
+    //     if (AS7341_currentGain < 0) AS7341_currentGain = 0; // min gain is 0
+    //     as7341.writeRegister(AS7341_CFG1, AS7341_currentGain);  
+    //     Serial.print("Decreasing gain to: "); Serial.println(AS7341_currentGain);
+    //   }
+    //   if (INT_SP_L) {
+    //     Serial.println("One or more channels below low threshold");
+    //     AS7341_currentGain++;
+    //     if (AS7341_currentGain > 10) AS7341_currentGain = 10; // max gain is 10
+    //     as7341.writeRegister(AS7341_CFG1, AS7341_currentGain);
+    //     Serial.print("Increasing gain to: "); Serial.println(AS7341_currentGain);
+    //   }
+    // }
 
     // Check for FIFO Buffer Interrupt
     if (FINT) {
@@ -349,8 +424,14 @@ void AS7341InterruptTask(void *pvParameters) {
       // Not using Calibration, so this should not happen
     }
   
+  // Ensure INTENAB is correct before next interrupt cycle
+  as7341.writeRegister(AS7341_INTENAB, 0x89); // ASIEN + SP_IEN + SIEN
+
+  // Disable threshold interrupts, enable only completion interrupts  
+  //as7341.writeRegister(AS7341_INTENAB, 0x81); // Only ASIEN + SIEN
+
   // All interrupts handled, write the stat value back to the STATUS register to clear
-  as7341.writeRegister(AS7341_STAT, stat); // clear all status bits
+  as7341.writeRegister(AS7341_STATUS, stat); // clear all status bits
 
   }
 }
@@ -360,15 +441,19 @@ void AS7341_Set_SMUX_Task(void *pvParameters) {
     // Wait here until AS7341InterruptTask wakes us up
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     Serial.println("Setting the SMUX!");
-
+    
     // turn off SP_EN
     as7341.writeRegister(0x80, 0b00001001);
 
     // Enable special interrupt (SINT_SMUX). As soon as SMUX command has finished interrupt is activated.
     // Register: CFG9 / 0xB2
-    as7341.writeRegister(0xB2, 0x10);
+    //as7341.writeRegister(0xB2, 0x10);
     // Enable special interrupt SIEN | Register: INTENAB / 0xF9
-    as7341.writeRegister(0xF9, 0x01);
+    //as7341.writeRegister(0xF9, 0x01);
+
+    // Disable threshold interrupts, enable only completion interrupts  
+    //as7341.writeRegister(AS7341_INTENAB, 0x81); // Only ASIEN + SIEN
+
     // Write SMUX configuration from RAM to set SMUX chain | Register: CFG6 / 0xAF
     as7341.writeRegister(0xAF, 0x10);
     
@@ -419,9 +504,15 @@ void AS7341_Read_Results_Task(void *pvParameters) {
     if (AS7341_SMUX_low) {
       AS7341_history_low[AS7341_historyIndex_low] = AS7341_Buffer;
       AS7341_historyIndex_low = (AS7341_historyIndex_low + 1) % AS7341_HISTORY_SIZE;
+      AS7341_Time1 = millis();
+      Serial.print("Time for low channel read: ");
+      Serial.println( AS7341_Time1 - AS7341_Time2);
     } else {
       AS7341_history_high[AS7341_historyIndex_high] = AS7341_Buffer;
       AS7341_historyIndex_high = (AS7341_historyIndex_high + 1) % AS7341_HISTORY_SIZE;
+      AS7341_Time2 = millis();
+      Serial.print("Time for high channel read: ");
+      Serial.println(AS7341_Time2 - AS7341_Time1);
     }
 
     AS7341_SMUX_low = !AS7341_SMUX_low; // toggle for next time
@@ -605,7 +696,7 @@ void testAS7341_INT_simple() {
 
   // 6) Poll registers and INT pin for a few seconds
   for (int i = 0; i < 20; ++i) {
-    uint8_t astat = as7341.getRegister(0x95);   // ASTATUS / ASTATUS
+    uint8_t astat = as7341.getRegister(0x94);   // ASTATUS / ASTATUS
     uint8_t s2    = as7341.getRegister(0x96);   // STATUS2
     uint8_t s3    = as7341.getRegister(0xA4);   // STATUS3
     uint8_t stat  = as7341.getRegister(0x71);   // STAT (if your driver uses this)

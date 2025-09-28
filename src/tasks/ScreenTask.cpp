@@ -220,6 +220,10 @@ void screenTask(void *pvParameters) {
         display.setCursor(64, 30);
         display.print("CLR:"); display.print(AS7341_latest_high.Clr);
         display.setCursor(0, 40);
+        display.print("gain: "); display.print(AS7341_latest_low.gain);
+        display.setCursor(64, 40);
+        display.print("Saturation: "); display.print(AS7341_latest_low.saturation);
+        
        // display.print("FLKR:"); display.print(AS7341_latest.FLKR);
         break;
       };

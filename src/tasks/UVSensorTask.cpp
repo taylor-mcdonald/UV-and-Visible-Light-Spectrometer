@@ -2,6 +2,7 @@
 
 // Task handle
 TaskHandle_t UV_TaskHandle = nullptr;
+TaskHandle_t UV_Start_TaskHandle = nullptr;
 
 // ISR (notify task)
 void IRAM_ATTR onUVSensorReady() {
@@ -43,10 +44,6 @@ void initUVSensor() {
 
   //Serial.println("Set mode to continuous. Starting measurement...");
 
-  // Begin measurement.
-  if (ksfTkErrOk != uvSensor.setStartState(true))
-      Serial.println("Error starting reading!");
-
   display.clearDisplay();
   display.setCursor(10, 28);
   display.println("UV Sensor Ready");
@@ -65,6 +62,16 @@ void startUVSensorTask() {
       1,                      // Priority at which the task is created.
       &UV_TaskHandle,         // Used to pass out the created task's handle.
       tskNO_AFFINITY          // Run on any core. 
+  );
+
+    xTaskCreatePinnedToCore(
+      startUVsensorMeasurementTask,   // Function that implements the task.
+      "start UV measurement Task",    // Text name for the task. 
+      2048,                           // Stack size in words, not bytes.
+      NULL,                           // Parameter passed into the task.
+      1,                              // Priority at which the task is created.
+      &UV_Start_TaskHandle,           // Used to pass out the created task's handle.
+      tskNO_AFFINITY                  // Run on any core. 
   );
   return;
 }
@@ -97,4 +104,17 @@ void UVsensorTask(void *pvParameters) {
       printLatestUV();
     }
     //vTaskDelay(pdMS_TO_TICKS(SENSOR_TASK_DELAY)); // avoid busy loop
+}
+
+void startUVsensorMeasurementTask(void *pvParameters) {
+  TickType_t lastWake = xTaskGetTickCount();
+  const TickType_t interval = pdMS_TO_TICKS(UV_MEASUREMENT_INTERVAL); // 750 ms
+
+  for (;;) {
+    // Begin measurement.
+    if (ksfTkErrOk != uvSensor.setStartState(true))
+      Serial.println("Error starting reading!");
+
+    vTaskDelayUntil(&lastWake, interval);
+  }
 }
