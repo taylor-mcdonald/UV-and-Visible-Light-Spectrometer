@@ -80,7 +80,7 @@ void bleTask(void* pvParameters) {
             updateBME680Characteristic();
             updateAS7341Characteristic();
             updateUVCharacteristic();
-            // updateBatteryCharacteristic(); // add when MAX17043 arrives
+            updateBatteryCharacteristic(); 
         }
         vTaskDelayUntil(&lastWake, interval);
     }
@@ -153,4 +153,17 @@ void updateAS7341Characteristic() {
 
     bleNotifCount++;
     strncpy(bleLastUpdated, "AS7341", sizeof(bleLastUpdated));
+}
+
+void updateBatteryCharacteristic() {
+    char json[64];
+    snprintf(json, sizeof(json),
+        "{\"v\":%.3f,\"pct\":%.1f}",
+        batteryVoltage,
+        batteryPercent
+    );
+    pBatteryCharacteristic->setValue((uint8_t*)json, strlen(json));
+    pBatteryCharacteristic->notify();
+    bleNotifCount++;
+    strncpy(bleLastUpdated, "Battery", sizeof(bleLastUpdated));
 }

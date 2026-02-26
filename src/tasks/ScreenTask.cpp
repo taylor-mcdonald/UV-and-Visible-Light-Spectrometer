@@ -369,6 +369,61 @@ void screenTask(void *pvParameters) {
 
         break;
       };
+      
+      case 7: {
+        // Display Battery Status
+        display.setTextSize(1);
+
+        // --- Title ---
+        display.setCursor(0, 0);
+        display.print("Battery Status");
+
+        // --- Battery icon ---
+        // Outer shell: 60x24 pixels at position (10, 18)
+        display.drawRect(10, 18, 60, 24, SSD1306_WHITE);
+        // Battery terminal nub on right side
+        display.fillRect(70, 24, 4, 12, SSD1306_WHITE);
+
+        // Fill level based on percentage
+        // Max fill width is 56 pixels (inside the 60px shell with 2px border)
+        int fillWidth = (int)((batteryPercent / 100.0f) * 56);
+        fillWidth = max(0, min(56, fillWidth));  // clamp 0-56
+
+        // Color the fill based on charge level
+        if (batteryPercent > 20) {
+            display.fillRect(12, 20, fillWidth, 20, SSD1306_WHITE);
+        } else {
+            // Low battery — draw outlined (empty) to indicate warning
+            display.drawRect(12, 20, fillWidth, 20, SSD1306_WHITE);
+        }
+
+        // --- Percentage text ---
+        display.setTextSize(2);
+        display.setCursor(80, 18);
+        // right-align percentage
+        if (batteryPercent < 10) {
+            display.setCursor(98, 18);
+        } else if (batteryPercent < 100) {
+            display.setCursor(86, 18);
+        } else {
+            display.setCursor(80, 18);
+        }
+        display.print((int)batteryPercent);
+        display.print("%");
+
+        // --- Voltage text ---
+        display.setTextSize(1);
+        display.setCursor(80, 38);
+        display.print(batteryVoltage, 3);
+        display.println("V");
+
+        // --- Label ---
+        display.setCursor(104, 56);
+        display.print("BAT");
+
+        break;
+      };
+
       default:
         break;
       }

@@ -94,3 +94,5 @@ void printByteBinary(uint8_t value) {
   Serial.println();
 }
 
+float batteryVoltage = 0.0f;
+float batteryPercent = 0.0f;

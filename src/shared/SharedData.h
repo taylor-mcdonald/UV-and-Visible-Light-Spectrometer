@@ -64,7 +64,7 @@ struct BME680Reading {
 //  4 - AS7341 Data (visible spectrum)
 //  5 - Bar Chart of AS7341 and UV Index
 extern volatile int ScreenDisplay;
-#define NumOfScreens 7
+#define NumOfScreens 8
 
 // Create a rotating history of all sensor readings
 #define UVHISTORY_SIZE 120
@@ -94,3 +94,6 @@ void printByteBinary(uint8_t value);
 
 void addBME680Reading(float temp, float humid, float press, float gas_resistance);
 void printLatestBME680(void);
+
+extern float batteryVoltage;
+extern float batteryPercent;

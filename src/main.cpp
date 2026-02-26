@@ -66,16 +66,30 @@ Use the FWD/BACK buttons to change what info is displayed
 #include <shared/SharedData.h>
 #include <shared/I2CBus.h>
 #include <tasks/BLETask.h>
+#include <tasks/FuelGaugeTask.h>
 
 
 void mutexWatchdogTask(void *pvParameters);
+
+void i2cScan() {
+    Serial.println("Scanning I2C bus...");
+    for (byte addr = 1; addr < 127; addr++) {
+        Wire.beginTransmission(addr);
+        if (Wire.endTransmission() == 0) {
+            Serial.print("I2C device found at 0x");
+            Serial.println(addr, HEX);
+        }
+    }
+    Serial.println("Scan complete");
+}
 
 void setup() {
   Serial.begin(115200);
   i2cMutex = xSemaphoreCreateMutex();  // must be first
   Wire.begin(CUSTOM_SDA_PIN, CUSTOM_SCL_PIN); // Initialize I2C with custom pins
   //Wire.setClock(100000);  // slow bus down for reliability
-
+  delay(2000);
+  i2cScan();  // temporary, remove after confirming
   initBLE();          // before starting tasks
 
   ScreenDisplay = 0;
@@ -90,6 +104,8 @@ void setup() {
   initUVSensor();
   
   initAS7341Sensor();
+
+  initFuelGauge(Wire);
 
   display.clearDisplay();
   display.setCursor(10, 28);
@@ -117,6 +133,8 @@ void setup() {
   startBME680Tasks();
   startSpectralTasks();
   startButtonTasks();
+
+  startFuelGaugeTask();
   startBLETask();     // last
 
   xTaskCreatePinnedToCore(mutexWatchdogTask, "MutexWatchdog", 2048, NULL, 2, NULL, tskNO_AFFINITY);
