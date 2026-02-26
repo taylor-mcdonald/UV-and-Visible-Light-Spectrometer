@@ -2,6 +2,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include "shared/I2CBus.h"
+#include "shared/BLEShared.h"  // in BLETask.cpp and ScreenTask.cpp
 
 // 'UV Icon', 32x32px
 const unsigned char UV_Icon_bmp[] PROGMEM = {
@@ -220,7 +221,7 @@ void screenTask(void *pvParameters) {
         display.print("Gas Resistance:");
         display.setCursor(36, 45);
         display.setTextSize(2);
-        display.print(BME680_latest.gas_resistance, 1);
+        display.print(BME680_latest.gas_resistance / 1000.0f, 1);
         display.setTextSize(1);
         display.setCursor(100, 52);
         display.print("kOhm");
@@ -307,6 +308,64 @@ void screenTask(void *pvParameters) {
         display.setTextColor(SSD1306_WHITE);
         display.setCursor(0,0);
         display.print("AS7341 + AS7331 UV");
+
+        break;
+      };
+      
+      case 6: {
+        display.setTextSize(1);
+
+        NimBLEServer* pServer = NimBLEDevice::getServer();
+        bool connected = pServer->getConnectedCount() > 0;
+
+        // --- Line 1: Connection status ---
+        display.setCursor(0, 0);
+        if (connected) {
+            display.setTextColor(SSD1306_BLACK, SSD1306_WHITE); // inverted for emphasis
+            display.print(" BLE: CONNECTED  ");
+            display.setTextColor(SSD1306_WHITE);
+        } else {
+            display.print("BLE: ADVERTISING");
+        }
+
+        if (connected) {
+            // --- Line 2: Client MAC address ---
+            NimBLEConnInfo connInfo = pServer->getPeerInfo(0);
+            display.setCursor(0, 12);
+            display.print(connInfo.getAddress().toString().c_str());
+
+            // --- Line 3: MTU and RSSI ---
+            uint16_t mtu = pServer->getPeerMTU(connInfo.getConnHandle());
+            display.setCursor(0, 24);
+            display.print("MTU:");
+            display.print(mtu);
+            display.setCursor(64, 24);
+
+            // --- Line 4: Notification counter ---
+            display.setCursor(0, 36);
+            display.print("Notif:");
+            display.print(bleNotifCount);  // global counter you increment on each notify
+
+            // --- Line 5: Last characteristic updated ---
+            display.setCursor(0, 48);
+            display.print("Last:");
+            display.print(bleLastUpdated);  // e.g. "BME680" or "UV"
+
+        } else {
+            // Show last connected device if we have one
+            display.setCursor(0, 16);
+            display.print("Last seen:");
+            display.setCursor(0, 26);
+            display.print(bleLastAddress);  // store on disconnect
+
+            display.setCursor(0, 42);
+            display.print("Notif total:");
+            display.print(bleNotifCount);
+        }
+
+        // --- Sensor label ---
+        display.setCursor(104, 56);
+        display.print("BLE");
 
         break;
       };

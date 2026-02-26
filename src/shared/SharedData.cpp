@@ -93,3 +93,4 @@ void printByteBinary(uint8_t value) {
   }
   Serial.println();
 }
+

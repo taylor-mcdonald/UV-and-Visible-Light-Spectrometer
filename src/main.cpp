@@ -65,6 +65,7 @@ Use the FWD/BACK buttons to change what info is displayed
 #include <tasks/ButtonTask.h>
 #include <shared/SharedData.h>
 #include <shared/I2CBus.h>
+#include <tasks/BLETask.h>
 
 
 void mutexWatchdogTask(void *pvParameters);
@@ -74,6 +75,8 @@ void setup() {
   i2cMutex = xSemaphoreCreateMutex();  // must be first
   Wire.begin(CUSTOM_SDA_PIN, CUSTOM_SCL_PIN); // Initialize I2C with custom pins
   //Wire.setClock(100000);  // slow bus down for reliability
+
+  initBLE();          // before starting tasks
 
   ScreenDisplay = 0;
   initScreen();
@@ -114,6 +117,7 @@ void setup() {
   startBME680Tasks();
   startSpectralTasks();
   startButtonTasks();
+  startBLETask();     // last
 
   xTaskCreatePinnedToCore(mutexWatchdogTask, "MutexWatchdog", 2048, NULL, 2, NULL, tskNO_AFFINITY);
 
