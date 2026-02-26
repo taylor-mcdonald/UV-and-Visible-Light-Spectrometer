@@ -1,4 +1,7 @@
 #include "UVSensorTask.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include "shared/I2CBus.h"
 
 // Task handle
 TaskHandle_t UV_TaskHandle = nullptr;
@@ -89,21 +92,35 @@ void UVsensorTask(void *pvParameters) {
 
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY); // Wait for notification from ISR
 
+    if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      mutexTakenAt = millis();
+      mutexTakenBy = "AS7331 Interrupt";  // change label per task
       // Read all UV channels
- 
-     if (ksfTkErrOk != uvSensor.readAllUV())
+      if (ksfTkErrOk != uvSensor.readAllUV()) {
         Serial.println("Error reading UV.");
+        mutexTakenBy = "none";
+        xSemaphoreGive(i2cMutex);
+        continue;
+      }
 
       // --- Read UV sensor here ---
       float uva = uvSensor.getUVA();
       float uvb = uvSensor.getUVB();
       float uvc = uvSensor.getUVC();
+
+      mutexTakenBy = "none";
+      xSemaphoreGive(i2cMutex);
+
       addUVReading(uva, uvb, uvc);
 
       //Serial.println("UV data read and stored");
       printLatestUV();
+
+    } else {
+      Serial.println("AS7331 read: mutex timeout");
     }
     //vTaskDelay(pdMS_TO_TICKS(SENSOR_TASK_DELAY)); // avoid busy loop
+ }
 }
 
 void startUVsensorMeasurementTask(void *pvParameters) {
@@ -111,9 +128,20 @@ void startUVsensorMeasurementTask(void *pvParameters) {
   const TickType_t interval = pdMS_TO_TICKS(UV_MEASUREMENT_INTERVAL); // 750 ms
 
   for (;;) {
-    // Begin measurement.
-    if (ksfTkErrOk != uvSensor.setStartState(true))
-      Serial.println("Error starting reading!");
+    
+    if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      mutexTakenAt = millis();
+      mutexTakenBy = "AS7331 Start Measurement";  // change label per task
+      // Begin measurement.
+      if (ksfTkErrOk != uvSensor.setStartState(true)) {
+        Serial.println("Error starting reading!");
+      }
+      
+      mutexTakenBy = "none";
+      xSemaphoreGive(i2cMutex);
+    } else {
+      Serial.println("AS7331 start: mutex timeout");
+    }
 
     vTaskDelayUntil(&lastWake, interval);
   }

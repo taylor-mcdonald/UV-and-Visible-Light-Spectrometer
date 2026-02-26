@@ -17,6 +17,7 @@
 #define SENSOR_TASK_DELAY 50   // safety delay if needed
 #define AHT_UPDATE_MS 1000
 #define DS18_UPDATE_MS 1000
+#define BME680_UPDATE_MS 1000
 #define UV_MEASUREMENT_INTERVAL 750 // time between UV measurements
 #define debounce_delay 150
 
@@ -25,3 +26,6 @@
 #define PWM_PIN 1          // GPIO for PWM output to AS7341 sync signal  
 #define PWM_CHANNEL 0      // LEDC PWM channel
 #define PWM_TIMER   0      // LEDC PWM timer 
+
+//BME680 Definitions
+#define BME680_ADDRESS 0x76 // I2C address of the BME680 sensor

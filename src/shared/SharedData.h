@@ -45,16 +45,15 @@ extern volatile uint8_t AS7341_current_ATime;
 extern volatile long AS7341_Time1;
 extern volatile long AS7341_Time2;
 
-struct AHT21Reading {
+struct BME680Reading {
   float temp;
   float humid;
-  unsigned long AHT_timestamp;
+  float press;
+  float gas_resistance;
+  unsigned long BME680_timestamp;
 };
 
-struct DS18Reading {
-  float DS_temp;
-  unsigned long DS_timestamp;
-};
+
 
 //  Index to define which screen is to be drawn on the display
 //  0 - UV Raw Data
@@ -81,15 +80,10 @@ extern AS7341Reading AS7341_history_high[AS7341_HISTORY_SIZE];
 extern int AS7341_historyIndex_high;
 extern AS7341Reading AS7341_latest_high;
 
-#define AHTHISTORY_SIZE 120
-extern AHT21Reading AHThistory[AHTHISTORY_SIZE];
-extern int AHThistoryIndex;
-extern AHT21Reading AHT_latest;
-
-#define DS18HISTORY_SIZE 120
-extern DS18Reading DS18history[DS18HISTORY_SIZE];
-extern int DS18historyIndex;
-extern DS18Reading DS_latest;
+#define BME680HISTORY_SIZE 120
+extern BME680Reading BME680history[BME680HISTORY_SIZE];
+extern int BME680historyIndex;
+extern BME680Reading BME680_latest;
 
 void addUVReading(float uva, float uvb, float uvc);
 void printLatestUV(void);
@@ -97,5 +91,6 @@ float calculateUVIndex(float uva, float uvb);
 
 void printByteBinary(uint8_t value);
 
-void addAHT21Reading(float hmd, float tmp);
-void addDS18Reading(float tmp);
+void addBME680Reading(float temp, float humid, float press, float gas_resistance);
+void printLatestBME680(void);
+

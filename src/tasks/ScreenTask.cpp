@@ -1,4 +1,7 @@
 #include "ScreenTask.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include "shared/I2CBus.h"
 
 // 'UV Icon', 32x32px
 const unsigned char UV_Icon_bmp[] PROGMEM = {
@@ -46,6 +49,30 @@ const unsigned char microwatt_bmp[] PROGMEM = {
 	0x00, 0x00, 0x00, 0xe0, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x20, 0x03, 0xc5, 0xde, 0x40, 
 	0x07, 0x66, 0xf6, 0xc0, 0x06, 0x24, 0x62, 0x00, 0x04, 0x04, 0x62, 0x00, 0x04, 0x04, 0x62, 0x00, 
 	0x06, 0x24, 0x62, 0x00, 0x03, 0xe4, 0x62, 0x00, 0x01, 0xc4, 0x42, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+// 'air-filter', 32x32px
+const unsigned char air_filter [] PROGMEM = {
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xff, 0xff, 0x80,
+  0x01, 0xff, 0xff, 0x80, 0x01, 0xc0, 0x03, 0x80, 0x01, 0x80, 0x01, 0x80, 0x01, 0x80, 0x01, 0x80,
+  0x1f, 0x80, 0x0f, 0xc0, 0x1f, 0x80, 0x7f, 0xf8, 0x1f, 0x83, 0xff, 0xf8, 0x01, 0x8f, 0xe0, 0x18,
+  0x01, 0x8f, 0x80, 0x00, 0x1f, 0x80, 0x07, 0x80, 0x1f, 0x80, 0x3f, 0xf0, 0x1f, 0x81, 0xff, 0xf8,
+  0x03, 0x8f, 0xf0, 0x38, 0x01, 0x8f, 0xc0, 0x00, 0x01, 0x8e, 0x00, 0x00, 0x1f, 0x80, 0x1f, 0xe0,
+  0x1f, 0x80, 0x7f, 0xf8, 0x03, 0x8f, 0xf8, 0x78, 0x01, 0x8f, 0xe0, 0x08, 0x01, 0x8f, 0x00, 0x00,
+  0x01, 0x80, 0x01, 0x80, 0x01, 0x80, 0x01, 0x80, 0x01, 0xc0, 0x03, 0x80, 0x01, 0xff, 0xff, 0x80,
+  0x01, 0xff, 0xff, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+// 'air pressure', 32x32px
+const unsigned char air_pressure [] PROGMEM = {
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x80, 0x00, 
+	0x00, 0x01, 0x80, 0x00, 0x00, 0x01, 0x80, 0x00, 0x01, 0x81, 0x81, 0x80, 0x01, 0x81, 0x81, 0x80, 
+	0x01, 0x81, 0x81, 0x80, 0x01, 0x81, 0x81, 0x80, 0x01, 0x81, 0x81, 0x80, 0x01, 0x81, 0x81, 0x80, 
+	0x01, 0x81, 0x81, 0x80, 0x01, 0x81, 0x81, 0x80, 0x01, 0x81, 0x81, 0x80, 0x01, 0x81, 0x81, 0x80, 
+	0x01, 0x81, 0x81, 0x80, 0x01, 0x81, 0x81, 0x80, 0x07, 0x81, 0x81, 0xe0, 0x03, 0x8f, 0xf1, 0xc0, 
+	0x01, 0x87, 0xe1, 0x80, 0x00, 0x83, 0xc1, 0x00, 0x00, 0x03, 0x80, 0x00, 0x00, 0x01, 0x80, 0x00, 
+	0x00, 0x00, 0x00, 0x00, 0x0f, 0xff, 0xff, 0xf0, 0x0f, 0xff, 0xff, 0xf0, 0x07, 0xff, 0xff, 0xe0, 
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
@@ -145,59 +172,62 @@ void screenTask(void *pvParameters) {
         break;
       };
 
-      // AHT21 Data Screen
+      // BME680 Data Screen
       case 2: {
-        AHT_latest = AHThistory[(AHThistoryIndex - 1 + AHTHISTORY_SIZE) % AHTHISTORY_SIZE];
-        // Print temperature data
-        //Serial.print("Temperature: ");
-        //Serial.print(AHT_latest.temp);
-        //Serial.println(" °C");
+        BME680_latest = BME680history[(BME680historyIndex - 1 + BME680HISTORY_SIZE) % BME680HISTORY_SIZE];
 
-        // Print humidity data
-        //Serial.print("Humidity: ");
-        //Serial.print(AHT_latest.humid);
-        //Serial.println(" %");
-
-        // Display AHT21 temp & Humidity on the OLED Display for 2 seconds
         display.clearDisplay();
-        // Thermometer Icon
-        display.drawBitmap(0, 0, thermometer_bmp, 32, 32, SSD1306_WHITE);
-        display.setCursor(24, 4);
         display.setTextSize(1);
-        display.print("Temp (C): ");
-        //display.setTextSize(2);
-        display.print(AHT_latest.temp);
 
-        // Droplet Icon
-        display.drawBitmap(0, 32, humidity_bmp, 32, 32, SSD1306_WHITE);
-        display.setCursor(24, 28);
-        //display.setTextSize(1);
-        display.print("Hum(rel%): ");
-        //display.setTextSize(2);
-        display.print(AHT_latest.humid);
-
-        display.setCursor(32, 48);
+        display.drawBitmap(0, 0, thermometer_bmp, 32, 32, SSD1306_WHITE);
+        display.setCursor(36, 2);
+        display.print("Temp (C):");
+        display.setCursor(36, 13);
         display.setTextSize(2);
-        display.print("AHT21");
+        display.print(BME680_latest.temp, 1);
+
+        display.setTextSize(1);
+        display.drawBitmap(0, 32, humidity_bmp, 32, 32, SSD1306_WHITE);
+        display.setCursor(36, 34);
+        display.print("Humidity (%):");
+        display.setCursor(36, 45);
+        display.setTextSize(2);
+        display.print(BME680_latest.humid, 1);
+
+        display.setTextSize(1);
+        display.setCursor(92, 56);
+        display.print("BME680");
+
         break;
       };
 
-      // DS18B20 Screen
       case 3: {
-        // Display DS18B20 Reading on the OLED Display
-        // Thermometer Icon
-        DS_latest = DS18history[(DS18historyIndex - 1 + DS18HISTORY_SIZE) % DS18HISTORY_SIZE];
-        display.drawBitmap(0, 0, thermometer_bmp, 32, 32, SSD1306_WHITE);
-        display.setCursor(34, 4);
+        BME680_latest = BME680history[(BME680historyIndex - 1 + BME680HISTORY_SIZE) % BME680HISTORY_SIZE];
+
+        display.clearDisplay();
         display.setTextSize(1);
-        display.print("Temp (C): ");
-        //display.setTextSize(2);
-        display.print(DS_latest.DS_temp);
-        display.setCursor(0, 38);
-        //display.setTextSize(1);
-        display.print("DS18B20"); 
+
+        display.drawBitmap(0, 0, air_pressure, 32, 32, SSD1306_WHITE);
+        display.setCursor(36, 2);
+        display.print("Pressure (hPa):");
+        display.setCursor(36, 12);
+        display.setTextSize(2);
+        display.print(BME680_latest.press, 1);
+
+        display.setTextSize(1);
+        display.drawBitmap(0, 32, air_filter, 32, 32, SSD1306_WHITE);
+        display.setCursor(36, 34);
+        display.print("Gas Resistance:");
+        display.setCursor(36, 45);
+        display.setTextSize(2);
+        display.print(BME680_latest.gas_resistance, 1);
+        display.setTextSize(1);
+        display.setCursor(100, 52);
+        display.print("kOhm");
+
         break;
       };
+
       case 4: {
         // Display AS7341 Reading on the OLED Display
         AS7341_latest_low = AS7341_history_low[(AS7341_historyIndex_low - 1 + AS7341_HISTORY_SIZE) % AS7341_HISTORY_SIZE];
@@ -284,11 +314,20 @@ void screenTask(void *pvParameters) {
         break;
       }
 
-    display.display();
+    if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(200)) == pdTRUE) {
+      mutexTakenAt = millis();
+      mutexTakenBy = "Screen";  // change label per task
+      display.display();
       //Serial.print("Just updated screen: ");
       //Serial.println(ScreenDisplay); 
       //Serial.println("Screen updated");
-   
+      
+      mutexTakenBy = "none";
+      xSemaphoreGive(i2cMutex);
+    } else {
+      Serial.println("Screen: mutex timeout");
+    }
+    
     // Wait until the next 500 ms boundary
     vTaskDelayUntil(&lastWake, interval);
   
