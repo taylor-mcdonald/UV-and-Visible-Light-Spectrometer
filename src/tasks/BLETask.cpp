@@ -5,12 +5,14 @@
 
 #define SOLAR_SERVICE_UUID  "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define BME680_CHAR_UUID    "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-#define AS7341_CHAR_UUID    "beb5483e-36e1-4688-b7f5-ea07361b26a9"
+#define AS7341_LOW_CHAR_UUID   "beb5483e-36e1-4688-b7f5-ea07361b26a9"  // existing
+#define AS7341_HIGH_CHAR_UUID  "beb5483e-36e1-4688-b7f5-ea07361b26ac"  // new
 #define UV_CHAR_UUID        "beb5483e-36e1-4688-b7f5-ea07361b26aa"
 #define BATTERY_CHAR_UUID   "beb5483e-36e1-4688-b7f5-ea07361b26ab"
 
 NimBLECharacteristic* pBME680Characteristic  = nullptr;
-NimBLECharacteristic* pAS7341Characteristic  = nullptr;
+NimBLECharacteristic* pAS7341LowCharacteristic  = nullptr;
+NimBLECharacteristic* pAS7341HighCharacteristic = nullptr;
 NimBLECharacteristic* pUVCharacteristic      = nullptr;
 NimBLECharacteristic* pBatteryCharacteristic = nullptr;
 
@@ -46,8 +48,13 @@ void initBLE() {
         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
     );
 
-    pAS7341Characteristic = pService->createCharacteristic(
-        AS7341_CHAR_UUID,
+
+    pAS7341LowCharacteristic = pService->createCharacteristic(
+        AS7341_LOW_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+    );
+    pAS7341HighCharacteristic = pService->createCharacteristic(
+        AS7341_HIGH_CHAR_UUID,
         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
     );
 
@@ -78,7 +85,8 @@ void bleTask(void* pvParameters) {
         // Only send notifications if a client is connected
         if (NimBLEDevice::getServer()->getConnectedCount() > 0) {
             updateBME680Characteristic();
-            updateAS7341Characteristic();
+            updateAS7341LowCharacteristic();
+            updateAS7341HighCharacteristic();
             updateUVCharacteristic();
             updateBatteryCharacteristic(); 
         }
@@ -136,23 +144,39 @@ void updateUVCharacteristic() {
     strncpy(bleLastUpdated, "UV", sizeof(bleLastUpdated));
 }
 
-void updateAS7341Characteristic() {
+void updateAS7341LowCharacteristic() {
     AS7341Reading low  = AS7341_history_low[(AS7341_historyIndex_low   - 1 + AS7341_HISTORY_SIZE) % AS7341_HISTORY_SIZE];
+    
+
+    char json[256];
+    snprintf(json, sizeof(json),
+        "{\"f1\":%u,\"f2\":%u,\"f3\":%u,\"f4\":%u,\"nir\":%u,\"clr\":%u,\"g\":%u,\"flk\":%u}",
+        low.F1_F5,  low.F2_F6,  low.F3_F7,  low.F4_F8,
+        low.NIR,    low.Clr,   low.gain,   low.flicker_hz
+    );
+
+        pAS7341LowCharacteristic->setValue((uint8_t*)json, strlen(json));
+    pAS7341LowCharacteristic->notify();
+
+    bleNotifCount++;
+    strncpy(bleLastUpdated, "AS7341 Low", sizeof(bleLastUpdated));
+}
+
+void updateAS7341HighCharacteristic() {
     AS7341Reading high = AS7341_history_high[(AS7341_historyIndex_high - 1 + AS7341_HISTORY_SIZE) % AS7341_HISTORY_SIZE];
 
     char json[256];
     snprintf(json, sizeof(json),
-        "{\"f1\":%u,\"f2\":%u,\"f3\":%u,\"f4\":%u,\"f5\":%u,\"f6\":%u,\"f7\":%u,\"f8\":%u,\"nir\":%u,\"clr\":%u,\"g\":%u,\"flk\":%u}",
-        low.F1_F5,  low.F2_F6,  low.F3_F7,  low.F4_F8,
+        "{\"f5\":%u,\"f6\":%u,\"f7\":%u,\"f8\":%u,\"nir\":%u,\"clr\":%u,\"g\":%u,\"flk\":%u}",
         high.F1_F5, high.F2_F6, high.F3_F7, high.F4_F8,
-        low.NIR,    high.Clr,   low.gain,   low.flicker_hz
+        high.NIR,    high.Clr,   high.gain,   high.flicker_hz
     );
 
-    pAS7341Characteristic->setValue((uint8_t*)json, strlen(json));
-    pAS7341Characteristic->notify();
+    pAS7341HighCharacteristic->setValue((uint8_t*)json, strlen(json));
+    pAS7341HighCharacteristic->notify();
 
     bleNotifCount++;
-    strncpy(bleLastUpdated, "AS7341", sizeof(bleLastUpdated));
+    strncpy(bleLastUpdated, "AS7341 High", sizeof(bleLastUpdated));
 }
 
 void updateBatteryCharacteristic() {

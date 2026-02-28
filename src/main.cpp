@@ -105,7 +105,7 @@ void setup() {
   
   initAS7341Sensor();
 
-  initFuelGauge(Wire);
+  //initFuelGauge(Wire);
 
   display.clearDisplay();
   display.setCursor(10, 28);
@@ -134,7 +134,7 @@ void setup() {
   startSpectralTasks();
   startButtonTasks();
 
-  startFuelGaugeTask();
+  //startFuelGaugeTask();
   startBLETask();     // last
 
   xTaskCreatePinnedToCore(mutexWatchdogTask, "MutexWatchdog", 2048, NULL, 2, NULL, tskNO_AFFINITY);
