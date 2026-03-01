@@ -14,9 +14,6 @@ Devices:  ESP32-C3 - Bluetooth and WiFi enabled microcontroller
             GPIO8 = FWD Button
             GPIO9 = BK Button
 
-          REMOVED: GPIO7 = DS18B20 One Wire
-          REMOVED: DS18B20 - Temp Sensor
-
           AS7331 Spectral UV Sensor (Sparkfun breakout board) - I2C Comm. 
             https://github.com/sparkfun/SparkFun_AS7331_Arduino_Library 
             I2C Address = 0x74 (default but is adjustable)
@@ -27,9 +24,6 @@ Devices:  ESP32-C3 - Bluetooth and WiFi enabled microcontroller
             This build connects the AS7341's VIN pin to the 3.3V pin on the ESP32-C3 and uses 3.3V I2C signals.
             I2C Address = 0x39
             https://github.com/adafruit/Adafruit_AS7341
-          
-          REMOVED: AHT21 Temp and Humidity Sensor - I2C Comm
-          REMOVED:  I2C Address = 
 
           BME680 Temp, Humidity, Pressure, and Air Quality Sensor - I2C Comm
             https://www.amazon.com/dp/B08Z3LZ9Q6?ref=ppx_yo2ov_dt_b_fed_asin_title
@@ -47,8 +41,8 @@ Devices:  ESP32-C3 - Bluetooth and WiFi enabled microcontroller
 Project description:  
 Obtain UV-A, UV-B, and UV-C readings from the AS7331 via I2C.
 Obtain Visible spectrum readings from the AS7341 via I2C.
-Obtain Temp and Humidity readings from the AHT21
-Obtain Temp readings from the DS18B20
+Obtain Temp, Pressure, Humidity, and Gas sensor readings from the BME680 via I2C.
+Obtain battery voltage and charging status from the fuel gauge via I2C.
 
 Display all of this information on the OLED screen.
 Use the FWD/BACK buttons to change what info is displayed
@@ -71,25 +65,15 @@ Use the FWD/BACK buttons to change what info is displayed
 
 void mutexWatchdogTask(void *pvParameters);
 
-void i2cScan() {
-    Serial.println("Scanning I2C bus...");
-    for (byte addr = 1; addr < 127; addr++) {
-        Wire.beginTransmission(addr);
-        if (Wire.endTransmission() == 0) {
-            Serial.print("I2C device found at 0x");
-            Serial.println(addr, HEX);
-        }
-    }
-    Serial.println("Scan complete");
-}
+
 
 void setup() {
   Serial.begin(115200);
   i2cMutex = xSemaphoreCreateMutex();  // must be first
   Wire.begin(CUSTOM_SDA_PIN, CUSTOM_SCL_PIN); // Initialize I2C with custom pins
   //Wire.setClock(100000);  // slow bus down for reliability
-  delay(2000);
-  i2cScan();  // temporary, remove after confirming
+  //delay(2000);
+  //i2cScan();  // temporary, remove after confirming
   initBLE();          // before starting tasks
 
   ScreenDisplay = 0;

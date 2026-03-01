@@ -5,3 +5,5 @@
 extern SemaphoreHandle_t i2cMutex;
 extern volatile uint32_t mutexTakenAt;
 extern volatile const char* mutexTakenBy;
+
+void i2cScan(void);
