@@ -7,7 +7,7 @@
 #include "config.h"
 
 
-void initAS7341Sensor(void);
+void initAS7341Sensor(TwoWire &wirePort);
 void initAS7341interrupt(void);
 
 void startSpectralTasks(void);

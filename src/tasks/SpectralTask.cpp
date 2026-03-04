@@ -2,6 +2,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include "shared/I2CBus.h"
+#include <Wire.h>
 
 // Task handle
 TaskHandle_t as7341TaskHandle = nullptr;
@@ -33,36 +34,22 @@ Adafruit_AS7341 as7341; // Create an instance of the AS7341 sensor object
 
 AS7341Reading AS7341_Buffer = {};
 
-void initAS7341Sensor(void) {
+void initAS7341Sensor(TwoWire &wirePort) {
   unsigned long time1, time2, time3, time4;
 
   // Adafruit AS7341 Sensor Initialization *******************************************//
 
-
-  //Setup a PWM signal on the chosen pin to drive the AS7341's SYNC pin
-  // 40 Hz frequency, 13-bit resolution is fine (0-8191)
-  const double freq = 40;         // Hz
-  const int resolution = 13;      // bits
-
-  // Configure LEDC timer
-  ledcSetup(PWM_CHANNEL, freq, resolution);
-
-  // Attach the channel to a pin
-  ledcAttachPin(PWM_PIN, PWM_CHANNEL);
-
-  // Compute duty (80% of 8191 = 6553)
-  int duty = (int)((8191 * 20.0) / 25.0);  
-
-  // Set duty
-  ledcWrite(PWM_CHANNEL, duty);
-
   // Setup pin to read the INT Pin.  Do not enable the interrupt yet
   pinMode(SP_RDY_PIN, INPUT_PULLUP);
   
-  if (!as7341.begin()){
-    Serial.println("Could not find AS7341");
-    while (1) { delay(10); }
+  //TwoWire *wirePtr = &wirePort;
+  if (!as7341.begin(AS7341_I2CADDR_DEFAULT, &wirePort)) {
+      Serial.println("AS7341: begin() FAILED");
+      while (1) { delay(10); }
   }
+  Serial.println("AS7341: begin() OK");
+
+  
 
   as7341.powerEnable(true); // enable the internal oscillator
   delay(10); // wait for the oscillator to stabilize
@@ -281,7 +268,7 @@ void AS7341InterruptTask(void *pvParameters) {
   for (;;) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-    if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (xSemaphoreTake(i2cMutex1, pdMS_TO_TICKS(100)) == pdTRUE) {
       mutexTakenAt = millis();
       mutexTakenBy = "AS7341 Interrupt";  // change label per task
       //Serial.println("AS7341 Interrupt detected");
@@ -324,7 +311,7 @@ void AS7341InterruptTask(void *pvParameters) {
       // Serial.print("FDSTAT  (0xDB): ");  Serial.println(FDstat, BIN);
       // Serial.print("INTENAB (0xF9): ");  Serial.println(INTENABstat, BIN);
       mutexTakenBy = "none";
-      xSemaphoreGive(i2cMutex);
+      xSemaphoreGive(i2cMutex1);
     } else {
       Serial.println("AS7341InterruptTask: mutex timeout reading status registers");
       continue;  // skip this interrupt cycle
@@ -369,12 +356,12 @@ void AS7341InterruptTask(void *pvParameters) {
         //as7341.writeRegister(AS7341_STATUS5, 0x04);  // clear SINT_SMUX
         //as7341.enableSpectralMeasurement(true); // start spectral measurement
 
-        if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        if (xSemaphoreTake(i2cMutex1, pdMS_TO_TICKS(100)) == pdTRUE) {
           mutexTakenAt = millis();
           mutexTakenBy = "AS7341 Start Measurement";  // change label per task
           as7341.writeRegister(0x80, 0b00001011);   //start measurement bit 1, keep bit 0 (PON) on and bit 3 (WAIT) on 
           mutexTakenBy = "none";
-          xSemaphoreGive(i2cMutex);
+          xSemaphoreGive(i2cMutex1);
         } else {
           Serial.println("AS7341InterruptTask: mutex timeout on SMUX start");
         }  
@@ -451,7 +438,7 @@ void AS7341InterruptTask(void *pvParameters) {
     //   Serial.println("Calibration Interrupt");
     //   // Not using Calibration, so this should not happen
     // }
-    if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (xSemaphoreTake(i2cMutex1, pdMS_TO_TICKS(100)) == pdTRUE) {
       mutexTakenAt = millis();
       mutexTakenBy = "AS7341 Interrupt Cleanup";  // change label per task
       // Ensure INTENAB is correct before next interrupt cycle
@@ -463,7 +450,7 @@ void AS7341InterruptTask(void *pvParameters) {
       // All interrupts handled, write the stat value back to the STATUS register to clear
       as7341.writeRegister(AS7341_STATUS, stat); // clear all status bits
       mutexTakenBy = "none";
-      xSemaphoreGive(i2cMutex);
+      xSemaphoreGive(i2cMutex1);
     } else {
       Serial.println("AS7341InterruptTask: mutex timeout on cleanup writes");
     }
@@ -477,7 +464,7 @@ void AS7341_Set_SMUX_Task(void *pvParameters) {
     // Serial.println("Setting the SMUX!");
     
     // SMUX reconfiguration is a multi-step sequence that must not be interrupted
-    if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(200)) == pdTRUE) {
+    if (xSemaphoreTake(i2cMutex1, pdMS_TO_TICKS(200)) == pdTRUE) {
       mutexTakenAt = millis();
       mutexTakenBy = "AS7341 Set SMUX";  // change label per task
       // turn off SP_EN
@@ -509,7 +496,7 @@ void AS7341_Set_SMUX_Task(void *pvParameters) {
       as7341.writeRegister(0x80, 0b00011001);
 
       mutexTakenBy = "none";
-      xSemaphoreGive(i2cMutex);
+      xSemaphoreGive(i2cMutex1);
     } else {
       Serial.println("AS7341_Set_SMUX_Task: mutex timeout");
     }
@@ -523,14 +510,14 @@ void AS7341_Read_Results_Task(void *pvParameters) {
     // Wait here until AS7341InterruptTask wakes us up
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-    if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (xSemaphoreTake(i2cMutex1, pdMS_TO_TICKS(100)) == pdTRUE) {
       mutexTakenAt = millis();
       mutexTakenBy = "AS7341 Read Results";  // change label per task
 
       as7341.getResults(AS7341_Buffer);
 
       mutexTakenBy = "none";
-      xSemaphoreGive(i2cMutex);
+      xSemaphoreGive(i2cMutex1);
     } else {
       Serial.println("AS7341_Read_Results_Task: mutex timeout");
       continue;  // skip this read cycle

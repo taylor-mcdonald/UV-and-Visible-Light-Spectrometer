@@ -10,6 +10,6 @@
 void UVsensorTask(void *pvParameters);
 void startUVsensorMeasurementTask(void *pvParameters);
 
-void initUVSensor(void);
+void initUVSensor(TwoWire &wirePort);
 void startUVSensorTask(void);
 void initUVSensorInterrupt(void);

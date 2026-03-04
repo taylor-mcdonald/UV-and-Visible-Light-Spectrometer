@@ -24,11 +24,11 @@ void IRAM_ATTR onUVSensorReady() {
 
 SfeAS7331ArdI2C uvSensor; // Create an instance of the sensor class
 
-void initUVSensor() {
+void initUVSensor(TwoWire &wirePort) {
 
   //// AS7331 Sensor Initialization  ***************************************************//
   // Initialize sensor and run default setup.
-  if (uvSensor.begin() == false) {
+  if (uvSensor.begin(kDefaultAS7331Addr, wirePort) == false) {
     Serial.println("Sensor failed to begin. Please check your wiring!");
     Serial.println("Halting...");
     while (1);
