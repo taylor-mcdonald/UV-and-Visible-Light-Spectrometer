@@ -22,8 +22,5 @@
 #define UV_MEASUREMENT_INTERVAL 750 // time between UV measurements
 #define debounce_delay 150
 
-// AS7341 Definitions
-#define SP_RDY_PIN 11       // GPIO for AS7341 Data Ready interrupt
-
 //BME680 Definitions
 #define BME680_ADDRESS 0x76 // I2C address of the BME680 sensor

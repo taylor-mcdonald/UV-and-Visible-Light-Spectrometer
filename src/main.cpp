@@ -95,14 +95,13 @@ void mutexWatchdogTask(void *pvParameters);
 
 
 void setup() {
-  delay(3000); // wait for usb CDC to enumerate
+  delay(1000); // wait for usb CDC to enumerate
   Serial.begin(115200);
-  delay(3000);
+  delay(1000);
   Serial.println("BOOT");
   Serial.flush();
   
   i2cMutex = xSemaphoreCreateMutex();  // must be first
-  i2cMutex1 = xSemaphoreCreateMutex();  // for second I2C bus
   
   delay(1000);
   Serial.println("Starting UV and Visible Light Spectrometer...");
@@ -112,7 +111,7 @@ void setup() {
   Serial.print("Wire.begin() returned: ");
   Serial.println(bus0ok ? "true" : "false");
 
-  i2cBusScan(Wire, "Bus 0"); // Scan bus 0 for devices
+ //i2cBusScan(Wire, "Bus 0"); // Scan bus 0 for devices
 
   delay(1000); // short delay to ensure bus is ready before scanning
 
@@ -121,7 +120,7 @@ void setup() {
   Serial.println(bus1ok ? "true" : "false");
   Wire1.setClock(400000);
 
-  i2cBusScan(Wire1, "Bus 1"); // Scan bus 1 for devices
+  //i2cBusScan(Wire1, "Bus 1"); // Scan bus 1 for devices
  
   // Wire1.begin(CUSTOM_SDA1_PIN, CUSTOM_SCL1_PIN); // Initialize I2C bus 1 with custom pins
   // Wire1.setClock(400000);  // We need speed!
@@ -179,7 +178,6 @@ void setup() {
   Serial.println("Button interrupts initialized.");
 
   initUVSensorInterrupt();
-  initAS7341interrupt();
   
 }
 

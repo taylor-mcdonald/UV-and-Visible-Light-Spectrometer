@@ -8,7 +8,6 @@
 
 
 void initAS7341Sensor(TwoWire &wirePort);
-void initAS7341interrupt(void);
 
 void startSpectralTasks(void);
 
@@ -17,8 +16,7 @@ void AS7341InterruptHandler(void *pvParameters);
 void AS7341InterruptTask(void *pvParameters);
 void AS7341_Set_SMUX_Task(void *pvParameters);
 void AS7341_Read_Results_Task(void *pvParameters);
-//void AS7341sensorTask(void *pvParameters);
 
-//void printAS7341registers(void);
-
-//void testAS7341_INT_simple(void);
+void AS7341_Flicker_Capture_Task(void *pvParameters);
+void AS7341_Spectral_Capture_Task(void *pvParameters);
+void AS7341_FFT_Task(void *pvParameters);

@@ -114,7 +114,7 @@ void UVsensorTask(void *pvParameters) {
       addUVReading(uva, uvb, uvc);
 
       //Serial.println("UV data read and stored");
-      printLatestUV();
+      //printLatestUV();
 
     } else {
       Serial.println("AS7331 read: mutex timeout");

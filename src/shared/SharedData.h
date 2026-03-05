@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include <freertos/queue.h>
 //#include <Adafruit_AS7341.h>
 
 // ================== Global Variables ==================
@@ -97,3 +98,54 @@ void printLatestBME680(void);
 
 extern float batteryVoltage;
 extern float batteryPercent;
+
+
+// ─── Flicker Detection ────────────────────────────────────────────────────────
+
+#define FLICKER_LOW_SAMPLE_COUNT   40    // 2s at ~20 samples/sec (50ms integration)
+#define FLICKER_HIGH_SAMPLE_COUNT  1000  // ~1s at ~1000 samples/sec (1ms integration)
+#define MAX_FLICKER_PEAKS          10    // max peaks to report per band
+
+// ATIME/ASTEP for low frequency capture (~50ms integration)
+// (29 + 1) * (599 + 1) * 2.78 / 1000 = 50.04ms → ~20 samples/sec
+#define FLICKER_LOW_ATIME   29
+#define FLICKER_LOW_ASTEP   599
+
+// ATIME/ASTEP for high frequency capture (~1ms integration)
+// (0 + 1) * (359 + 1) * 2.78 / 1000 = 1.0008ms → ~1000 samples/sec
+#define FLICKER_HIGH_ATIME  0
+#define FLICKER_HIGH_ASTEP  359
+
+struct FlickerPeak {
+    uint16_t frequency_x10;  // Hz * 10 (e.g. 1.5Hz = 15, 120Hz = 1200)
+    uint16_t magnitude;      // 0-65535 normalized
+};
+
+struct FlickerResult {
+    FlickerPeak peaks[MAX_FLICKER_PEAKS];
+    uint8_t     peakCount;
+    uint32_t    timestamp;
+    bool        valid;
+};
+
+// Buffer struct for passing flicker samples from capture task to FFT task
+struct FlickerBuffer {
+    uint16_t samples[FLICKER_HIGH_SAMPLE_COUNT];
+    uint16_t count;
+    bool     isLowFreq;
+};
+
+extern FlickerResult flickerLowResult;   // 0.5 - 10Hz
+extern FlickerResult flickerHighResult;  // 10 - 450Hz
+
+extern volatile bool spectralCaptureInProgress;
+extern TaskHandle_t flickerCaptureTaskHandle;
+extern TaskHandle_t fftTaskHandle;
+extern TaskHandle_t spectralCaptureTaskHandle;
+
+// Queue handles for passing buffers from FlickerCaptureTask to FFTTask
+extern QueueHandle_t flickerLowQueue;
+extern QueueHandle_t flickerHighQueue;
+
+extern FlickerBuffer flickerLowBuf;
+extern FlickerBuffer flickerHighBuf;

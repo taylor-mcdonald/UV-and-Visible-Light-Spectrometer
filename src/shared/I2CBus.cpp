@@ -2,7 +2,7 @@
 #include <Wire.h>
 #include "I2CBus.h"
 SemaphoreHandle_t i2cMutex = nullptr;
-SemaphoreHandle_t i2cMutex1 = nullptr;
+
 volatile uint32_t mutexTakenAt = 0;
 volatile const char* mutexTakenBy = "none";
 

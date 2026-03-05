@@ -96,3 +96,20 @@ void printByteBinary(uint8_t value) {
 
 float batteryVoltage = 0.0f;
 float batteryPercent = 0.0f;
+
+// Flicker detection results
+FlickerResult flickerLowResult  = {};
+FlickerResult flickerHighResult = {};
+
+volatile bool spectralCaptureInProgress = false;
+
+TaskHandle_t flickerCaptureTaskHandle  = nullptr;
+TaskHandle_t fftTaskHandle             = nullptr;
+TaskHandle_t spectralCaptureTaskHandle = nullptr;
+
+QueueHandle_t flickerLowQueue  = nullptr;
+QueueHandle_t flickerHighQueue = nullptr;
+
+// Global buffers — too large for stack or static locals
+FlickerBuffer flickerLowBuf ={};
+FlickerBuffer flickerHighBuf={};

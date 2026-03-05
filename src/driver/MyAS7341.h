@@ -367,6 +367,10 @@ public:
   void my_setup_F5F8_Clear_NIR(void);
   void my_FDConfig(void);
 
+  uint8_t readFIFO(uint16_t *buffer, uint8_t maxSamples);
+  void configureFIFO(bool enable);
+  void setupFDSmux(void);
+
 protected:
   virtual bool _init(int32_t sensor_id);
   uint8_t last_spectral_int_source =

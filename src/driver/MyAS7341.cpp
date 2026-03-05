@@ -1298,3 +1298,67 @@ bool Adafruit_AS7341::getSP_AGC(void) {
 
   return sp_agc_bit.read();
 }
+
+// Configure FIFO for flicker detection photodiode
+void Adafruit_AS7341::setupFDSmux(void) {
+    // Disable spectral measurement first
+    writeRegister(AS7341_ENABLE, 0x01); // PON only
+
+    // Write SMUX command
+    writeRegister(AS7341_CFG6, 0x10);   // SMUX_CMD = write
+
+    // Configure SMUX to route FD photodiode to ADC5
+    FDConfig();
+
+    // Execute SMUX
+    enableSMUX();
+}
+
+void Adafruit_AS7341::configureFIFO(bool enable) {
+    if (enable) {
+        // Enable FIFO mode via CFG0 FDEN bit (bit 6)
+        uint8_t cfg0 = getRegister(AS7341_CFG0);
+        writeRegister(AS7341_CFG0, cfg0 | 0x40);  // set FDEN  
+      
+        // Route ADC5 (FD photodiode) into FIFO
+        // FIFO_MAP (0xFC): bit 5 = ADC5
+        writeRegister(AS7341_FIFO_MAP, 0x20);  // ADC5 → FIFO
+
+        // Clear FIFO via CONTROL register (0xFA) bit 1
+        uint8_t ctrl = getRegister(AS7341_CONTROL);
+        writeRegister(AS7341_CONTROL, ctrl | 0x02);  // set FIFO_CLR
+
+        // Disable wait time for faster capture
+        writeRegister(AS7341_ENABLE, 0x03); // SP_EN + PON, no WEN (bit 3)
+
+        // Clear STATUS
+        writeRegister(AS7341_STATUS, 0xFF);
+    } else {
+        // Disable FIFO mapping
+        uint8_t cfg0 = getRegister(AS7341_CFG0);
+        writeRegister(AS7341_CFG0, cfg0 & ~0x40);  // clear FDEN
+        writeRegister(AS7341_FIFO_MAP, 0x00);
+    }
+}
+
+// uint8_t Adafruit_AS7341::readFIFO(uint16_t *buffer, uint8_t maxSamples) {
+//     uint8_t level = getRegister(AS7341_FIFO_LVL);
+//     uint8_t count = min(level, maxSamples);
+//     for (uint8_t i = 0; i < count; i++) {
+//         uint8_t lo = getRegister(AS7341_FDATA_L);
+//         uint8_t hi = getRegister(AS7341_FDATA_H);
+//         buffer[i] = (uint16_t)(hi << 8) | lo;
+//     }
+//     return count;
+// }
+uint8_t Adafruit_AS7341::readFIFO(uint16_t *buffer, uint8_t maxSamples) {
+    uint8_t count = 0;
+    while (count < maxSamples) {
+        uint8_t lo = getRegister(AS7341_FDATA_L);
+        uint8_t hi = getRegister(AS7341_FDATA_H);
+        uint16_t sample = (uint16_t)(hi << 8) | lo;
+        if (sample == 0xFFFF) break; // FIFO empty sentinel
+        buffer[count++] = sample;
+    }
+    return count;
+}

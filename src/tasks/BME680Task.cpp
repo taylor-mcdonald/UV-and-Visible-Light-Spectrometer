@@ -80,7 +80,7 @@ void BME680SensorTask(void *pvParameters) {
 
   for (;;) {
 
-    Serial.println("BME680 Interrupt detected");
+    //Serial.println("BME680 Interrupt detected");
 
     // if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
     //   mutexTakenAt = millis();
@@ -106,8 +106,8 @@ void BME680SensorTask(void *pvParameters) {
     // printLatestBME680();
 
         uint32_t remaining = bme680.remainingReadingMillis();
-        Serial.print("BME680: remaining=");
-        Serial.println(remaining);
+        //Serial.print("BME680: remaining=");
+        //Serial.println(remaining);
 
         // 0xFFFFFFFF means underflow -- treat as ready
         // Also treat anything over 5000ms as corrupted state
@@ -131,7 +131,7 @@ void BME680SensorTask(void *pvParameters) {
                         bme680.pressure / 100.0f,
                         bme680.gas_resistance
                     );
-                    printLatestBME680();
+                    //printLatestBME680();
                 }
 
                 // Always attempt to start next reading
@@ -139,8 +139,8 @@ void BME680SensorTask(void *pvParameters) {
                 if (endTime == 0) {
                     Serial.println("BME680: beginReading() failed");
                 } else {
-                    Serial.print("BME680: next reading ready at t=");
-                    Serial.println(endTime);
+                   // Serial.print("BME680: next reading ready at t=");
+                    //Serial.println(endTime);
                 }
 
                 mutexTakenBy = "none";
