@@ -3,11 +3,10 @@
 #include <freertos/semphr.h>
 #include "shared/I2CBus.h"
 #include <Wire.h>
+#include "FFT.h"
 
 
 Adafruit_AS7341 as7341; // Create an instance of the AS7341 sensor object
-
-AS7341Reading AS7341_Buffer = {};
 
 void initAS7341Sensor(TwoWire &wirePort) {
   unsigned long time1, time2, time3, time4;
@@ -153,10 +152,6 @@ as7341.writeRegister(AS7341_INTENAB, 0x81); // Only ASIEN + SIEN
 }
 
 void startSpectralTasks() {
-    // Create queues for passing flicker buffers to FFT task
-    // Queue depth 2 — if FFT falls behind, drop oldest
-    flickerLowQueue  = xQueueCreate(2, sizeof(FlickerBuffer));
-    flickerHighQueue = xQueueCreate(2, sizeof(FlickerBuffer));
 
     BaseType_t result = xTaskCreatePinnedToCore(
         AS7341_Flicker_Capture_Task,
@@ -188,142 +183,122 @@ void startSpectralTasks() {
         1                           // Core 1
     );
     Serial.print("FlickerCapture task create result: ");
-Serial.println(result == pdPASS ? "OK" : "FAILED");
+    Serial.println(result == pdPASS ? "OK" : "FAILED");
 }
 
 void AS7341_Flicker_Capture_Task(void *pvParameters) {
     const TickType_t pauseCheckInterval = pdMS_TO_TICKS(50);
 
-    Serial.println("FlickerCaptureTask: task entered");  // before delay
-    // Wait for sensor to be fully initialized
+    Serial.println("FlickerCaptureTask: task entered");
     vTaskDelay(pdMS_TO_TICKS(2000));
-
     Serial.println("FlickerCaptureTask: starting");
 
     for (;;) {
-        // Check if spectral capture wants the sensor
+        // Yield to spectral capture if needed
         if (spectralCaptureInProgress) {
             Serial.println("FlickerCaptureTask: pausing for spectral capture");
-            // Wait until spectral capture releases the sensor
             while (spectralCaptureInProgress) {
                 vTaskDelay(pauseCheckInterval);
             }
             Serial.println("FlickerCaptureTask: resuming");
         }
 
-            // Stop any ongoing spectral measurement
-            as7341.writeRegister(AS7341_ENABLE, 0x01); // PON only
+        // ── CONFIGURE SENSOR FOR FLICKER CAPTURE ─────────────────────────
+        // In AS7341_Flicker_Capture_Task, change the order:
 
-            // ── LOW FREQUENCY CAPTURE (~50ms integration, 40 samples) ──────────
-            as7341.setATIME(FLICKER_LOW_ATIME);
-            as7341.setASTEP(FLICKER_LOW_ASTEP);
-            
-            // Configure SMUX for FD photodiode
-            as7341.setupFDSmux();
+        as7341.writeRegister(AS7341_ENABLE, 0x00);
+        vTaskDelay(pdMS_TO_TICKS(5));
+        
 
-            as7341.configureFIFO(true);
+        // Set FD_TIME while FDEN=0 & PON=0
+        as7341.writeRegister(AS7341_FD_TIME1, FLICKER_FD_TIME & 0xFF);  //0xD8
+        as7341.writeRegister(AS7341_FD_TIME2, (as7341.getRegister(AS7341_FD_TIME2) & 0xF8) //0xDA
+                                    | ((FLICKER_FD_TIME >> 8) & 0x07));
+        as7341.writeRegister(0xD6, 0x01);  // autozero every cycle
 
-            // Enable spectral measurement (SP_EN + PON + WEN)
-            as7341.writeRegister(AS7341_ENABLE, 0x0B);
+        
+        Serial.print("CFG0 before setupFDSmux: 0x");
+        Serial.println(as7341.getRegister(0xA9), HEX);
+        as7341.setupFDSmux();  // THEN configure SMUX — must not reset 0xD7
+        Serial.print("CFG0 after setupFDSmux: 0x");
+        Serial.println(as7341.getRegister(0xA9), HEX);
+        Serial.print("FD_CFG0 after setupFDSmux: 0x");
+        Serial.println(as7341.getRegister(0xD7), HEX);
 
-            Serial.print("ATIME: "); 
-            Serial.println(as7341.getATIME());
-            Serial.print("ASTEP: "); 
-            Serial.println(as7341.getASTEP());
-            Serial.print("FIFO_MAP: "); 
-            Serial.println(as7341.getRegister(AS7341_FIFO_MAP), HEX);
-            Serial.print("CFG0: "); 
-            Serial.println(as7341.getRegister(AS7341_CFG0), HEX);
-            Serial.print("ENABLE: "); 
-            Serial.println(as7341.getRegister(AS7341_ENABLE), HEX);
+         // Configure FIFO — sets FD_CFG0 bit 7
+        as7341.configureFIFO_FD(true);
 
-            uint16_t samplesCollected = 0;
-            uint32_t captureStart = millis();
-            const uint32_t lowCaptureTimeout = 3000; // 3 second timeout
+        // Enable 
+        as7341.writeRegister(AS7341_ENABLE, 0x01);  // PON only
+        vTaskDelay(pdMS_TO_TICKS(2));
+        as7341.writeRegister(AS7341_ENABLE, 0b01000001);  // PON + FDEN
 
-            while (samplesCollected < FLICKER_LOW_SAMPLE_COUNT &&
-                   (millis() - captureStart) < lowCaptureTimeout) {
+        // Flush
+        as7341.writeRegister(AS7341_CONTROL, 0x02);
+        as7341.writeRegister(AS7341_CONTROL, 0x00);
 
-                vTaskDelay(pdMS_TO_TICKS(45)); // wait ~1 integration period
-                
+        // Diagnostics — remove after validated
+        Serial.print("ENABLE: 0x");  Serial.println(as7341.getRegister(AS7341_ENABLE), HEX);
+        Serial.print("FD_CFG0: 0x"); Serial.println(as7341.getRegister(0xD7), HEX);  // expect 0xA1
+        Serial.print("FD_TIME1: "); Serial.println(as7341.getRegister(0xD8));         // expect 180
+        Serial.print("FD_TIME2: 0x"); Serial.println(as7341.getRegister(0xDA), HEX);
+        Serial.print("CFG8: 0x");   Serial.println(as7341.getRegister(0xB1), HEX);
+        Serial.print("FD_AGC_MAX: 0x"); Serial.println(as7341.getRegister(0xCF) >> 4 | 0b00001111);  // expect 9
+        Serial.print("STATUS6: 0x"); Serial.println(as7341.getRegister(0xA7), HEX);  // check FD_TRIG bit 3
+        Serial.print("AZ_CONFIG: 0x"); Serial.println(as7341.getRegister(0xD6));  // check autozero config
 
-                uint8_t newSamples = as7341.readFIFO(
-                    &flickerLowBuf.samples[samplesCollected],
-                    FLICKER_LOW_SAMPLE_COUNT - samplesCollected
-                );
-                samplesCollected += newSamples;
-                
-                // LOW FREQUENCY loop - add inside the while loop:
-                Serial.print("low drain: newSamples=");
-                Serial.print(newSamples);
-                Serial.print(" total=");
-                Serial.print(samplesCollected);
-                Serial.print(" fifo_lvl=");
-                Serial.println(as7341.getRegister(AS7341_FIFO_LVL));
+        uint8_t fdt2 = as7341.getRegister(0xDA);
+        uint8_t fdGain = (fdt2 >> 3) & 0x1F;  // bits 7:3
+        uint8_t fdTimeMSB = fdt2 & 0b00000111;       // bits 2:0
+        uint16_t fdTime = (fdTimeMSB << 2) | as7341.getRegister(0xD8);
+        float gainMultiplier = 0.5f * (1 << fdGain);  // 0=0.5x, 1=1x, 2=2x, 3=4x...
+        Serial.print("FD_TIME2: 0x"); Serial.print(fdt2, HEX);
+        Serial.print("  FD_GAIN="); Serial.print(fdGain);
+        Serial.print(" ("); Serial.print(gainMultiplier, 0); Serial.print("x)");
+        Serial.print("  FD_TIME_MSB="); Serial.println(fdTimeMSB);
+        Serial.print("Calculated FD_TIME(μ𝑠): "); Serial.println(fdTime*2.78);
+
+        // ── CAPTURE 2000 SAMPLES ──────────────────────────────────────────
+        uint16_t samplesCollected = 0;
+        uint32_t captureStart = millis();
+        const uint32_t captureTimeout = 4000; // 2× expected duration
+
+        while (samplesCollected < FLICKER_SAMPLE_COUNT &&
+               (millis() - captureStart) < captureTimeout) {
+
+            uint8_t newSamples = as7341.readFIFO(
+                &flickerSamples[samplesCollected],
+                min((int)(FLICKER_SAMPLE_COUNT - samplesCollected), 64)
+            );
+            samplesCollected += newSamples;
+
+            if (newSamples == 0) {
+                vTaskDelay(pdMS_TO_TICKS(2)); // brief yield, FIFO fills ~every 32ms at 16-entry threshold
             }
-
-            Serial.print("FlickerCapture: low samples collected: ");
-            Serial.println(flickerLowBuf.count);
-
-            // Also print elapsed time after low capture:
-            Serial.print("low capture elapsed ms: ");
-            Serial.println(millis() - captureStart);
-
-            flickerLowBuf.count      = samplesCollected;
-            flickerLowBuf.isLowFreq  = true;
-
-            // ── HIGH FREQUENCY CAPTURE (~1ms integration, 1000 samples) ─────────
-            as7341.setATIME(FLICKER_HIGH_ATIME);
-            as7341.setASTEP(FLICKER_HIGH_ASTEP);
-            as7341.configureFIFO(true); // clears FIFO and reconfigures
-
-            // Re-enable measurement
-            as7341.writeRegister(AS7341_ENABLE, 0x0B);
-
-
-            samplesCollected = 0;
-            captureStart = millis();
-            const uint32_t highCaptureTimeout = 3000; // 3 second timeout
-
-            while (samplesCollected < FLICKER_HIGH_SAMPLE_COUNT &&
-                   (millis() - captureStart) < highCaptureTimeout) {
-
-                vTaskDelay(pdMS_TO_TICKS(5)); // shorter wait for high freq
-
-                // FIFO holds max 64 samples — drain frequently
-                uint8_t newSamples = as7341.readFIFO(
-                    &flickerHighBuf.samples[samplesCollected],
-                    min((int)(FLICKER_HIGH_SAMPLE_COUNT - samplesCollected), 64)
-                );
-                samplesCollected += newSamples;
-            }
-
-            Serial.print("FlickerCapture: high samples collected: ");
-            Serial.println(flickerHighBuf.count);
-
-            flickerHighBuf.count     = samplesCollected;
-            flickerHighBuf.isLowFreq = false;
-
-        // Post buffers to FFT queue — don't block long, FFT task should keep up
-        if (flickerLowBuf.count > 0) {
-            xQueueSend(flickerLowQueue, &flickerLowBuf, pdMS_TO_TICKS(100));
-        }
-        if (flickerHighBuf.count > 0) {
-            xQueueSend(flickerHighQueue, &flickerHighBuf, pdMS_TO_TICKS(100));
         }
 
-        // Small yield before next capture cycle
+        uint32_t elapsed = millis() - captureStart;
+        Serial.print("FlickerCapture: samples="); Serial.print(samplesCollected);
+        Serial.print(" elapsed_ms="); Serial.println(elapsed);
+
+        // Print first 20 samples for validation
+        Serial.print("samples[0-19]: ");
+        for (int i = 0; i < 20 && i < samplesCollected; i++) {
+            Serial.print(flickerSamples[i]);
+            Serial.print(" ");
+        }
+        Serial.println();
+
+        uint16_t *pSamples = flickerSamples;
+        // Send to FFT task if we got a full buffer
+        if (samplesCollected == FLICKER_SAMPLE_COUNT) {
+            xQueueSend(flickerQueue, &pSamples, pdMS_TO_TICKS(100));
+        }
+
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
-void AS7341_FFT_Task(void *pvParameters) {
-    // Stub — full implementation in Step 4
-    Serial.println("FFTTask: started (stub)");
-    for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-}
 
 void AS7341_Spectral_Capture_Task(void *pvParameters) {
     // Stub — full implementation in Step 5

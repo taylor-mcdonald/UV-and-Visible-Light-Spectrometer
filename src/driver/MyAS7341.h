@@ -134,24 +134,24 @@
 #define AS7341_AZ_CONFIG 0xD6    ///< AS7341_AZ_CONFIG (unused)
 #define AS7341_FD_TIME1 0xD8 ///< Flicker detection integration time low byte
 #define AS7341_FD_TIME2 0xDA ///< Flicker detection gain and high nibble
-#define AS7341_FD_CFG0 0xD7  ///< AS7341_FD_CFG0 (unused)
+#define AS7341_FD_CFG0 0xD7  ///< AS7341_FD_CFG0 
 #define AS7341_FD_STATUS                                                       \
   0xDB ///< Flicker detection status; measurement valid, saturation, flicker
        ///< type
 #define AS7341_INTENAB 0xF9  ///< Enables individual interrupt types
 #define AS7341_CONTROL 0xFA  ///< Auto-zero, fifo clear, clear SAI active
-#define AS7341_FIFO_MAP 0xFC ///< AS7341_FIFO_MAP (unused)
-#define AS7341_FIFO_LVL 0xFD ///< AS7341_FIFO_LVL (unused)
-#define AS7341_FDATA_L 0xFE  ///< AS7341_FDATA_L (unused)
-#define AS7341_FDATA_H 0xFF  ///< AS7341_FDATA_H (unused)
+#define AS7341_FIFO_MAP 0xFC ///< AS7341_FIFO_MAP 
+#define AS7341_FIFO_LVL 0xFD ///< AS7341_FIFO_LVL 
+#define AS7341_FDATA_L 0xFE  ///< AS7341_FDATA_L 
+#define AS7341_FDATA_H 0xFF  ///< AS7341_FDATA_H
 
 #define AS7341_SPECTRAL_INT_HIGH_MSK                                           \
   0b00100000 ///< bitmask to check for a high threshold interrupt
 #define AS7341_SPECTRAL_INT_LOW_MSK                                            \
   0b00010000 ///< bitmask to check for a low threshold interrupt
-#define AS7431_SPECTRAL_AUTO_GAIN                                            \
+#define AS7341_SPECTRAL_AUTO_GAIN                                            \
   0b00000100 ///< bitmask to check for a low threshold interrupt
-#define AS7431_FLICKER_AUTO_GAIN                                            \
+#define AS7341_FLICKER_AUTO_GAIN                                            \
   0b00001000 ///< bitmask to check for a low threshold interrupt
 
 /**
@@ -369,6 +369,7 @@ public:
 
   uint8_t readFIFO(uint16_t *buffer, uint8_t maxSamples);
   void configureFIFO(bool enable);
+  void configureFIFO_FD(bool enable);
   void setupFDSmux(void);
 
 protected:

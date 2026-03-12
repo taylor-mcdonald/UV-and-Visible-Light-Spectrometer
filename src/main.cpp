@@ -102,6 +102,16 @@ void setup() {
   Serial.flush();
   
   i2cMutex = xSemaphoreCreateMutex();  // must be first
+
+  flickerSamples = (uint16_t *)ps_malloc(FLICKER_SAMPLE_COUNT * sizeof(uint16_t));
+  if (!flickerSamples) {
+      Serial.println("ERROR: PSRAM allocation failed for flickerSamples");
+      while(1) { delay(10); }
+  }
+
+  Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
+  Serial.printf("Free PSRAM: %d\n", ESP.getFreePsram());
+  Serial.printf("Min free heap ever: %d\n", ESP.getMinFreeHeap());
   
   delay(1000);
   Serial.println("Starting UV and Visible Light Spectrometer...");
@@ -158,6 +168,12 @@ void setup() {
   display.println("UV Sensor Ready");
   display.display();
   delay(500);
+
+  flickerQueue = xQueueCreate(2, sizeof(uint16_t *));  // holds pointers, not data
+  if (flickerQueue == nullptr) {
+    Serial.println("ERROR: flickerQueue creation failed");
+    while(1) { delay(10); }
+  }
 
   // --- Settle before tasks start ---
    delay(500);
