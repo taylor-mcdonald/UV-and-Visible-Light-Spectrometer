@@ -1343,47 +1343,20 @@ void Adafruit_AS7341::configureFIFO(bool enable) {
 
 void Adafruit_AS7341::configureFIFO_FD(bool enable) {
     if (enable) {
-        // FD_CFG0 (0xD7): set bit 7 = FIFO_WRITE_FD, preserve reserved bits 6:0
-        uint8_t fdcfg0 = getRegister(0xD7);
-        writeRegister(0xD7, fdcfg0 | 0x80);
+        // FIFO_WRITE_FD — flicker data goes to FIFO
+        uint8_t fdcfg0 = getRegister(AS7341_FD_CFG0);
+        writeRegister(AS7341_FD_CFG0, fdcfg0 | 0x80);
 
-        // FIFO_MAP (0xFC): clear — ignored when FDEN=1, but clean state
+        // FIFO_MAP (0xFC) — clear, ignored when FDEN=1
         writeRegister(AS7341_FIFO_MAP, 0x00);
 
-        // Cap AGC max gain to 5 (16x) to prevent AGC runaway
-        // AGC_GAIN_MAX (0xCF) bits 7:4 = AGC_FD_GAIN_MAX
-        // uint8_t agc_max = getRegister(0xCF);
-        // writeRegister(0xCF, (agc_max & 0x0F) | (5 << 4));
-
-        // Force FD_GAIN to 2 (4x) as starting point before AGC takes over
-        // Must be done while FDEN=0, PON=1
-        // uint8_t fdt2 = getRegister(0xDA);
-        // writeRegister(0xDA, (fdt2 & 0x07) | (2 << 3));  // FD_GAIN=2, preserve FD_TIME MSB
-
-        writeRegister(0xD6, 0x01);  // autozero every cycle
-
-        // FIFO threshold: CFG8 (0xB1) bits 7:6 = FIFO_TH
-        // Value 2 = threshold 8, value 3 = threshold 16
-        // Keep FD_AGC bit 3 set, set FIFO_TH to 3 (16 entries before FINT)
-        // uint8_t cfg8 = getRegister(0xB1);
-        // writeRegister(0xB1, (cfg8 & 0x3F) | (3 << 6));  // FIFO_TH = 16
-
-        // CFG8 (0xB1): enable FD_AGC, disable SP_AGC, set FIFO_TH=3 (16 entries)
+        // CFG8 (0xB1) — FIFO_TH only, AGC bits already set by setupForFlicker()
         uint8_t cfg8 = getRegister(AS7341_CFG8);
-        cfg8 &= ~AS7341_SPECTRAL_AUTO_GAIN;  // clear SP_AGC bit 2
-        cfg8 |=  AS7341_FLICKER_AUTO_GAIN;   // set FD_AGC bit 3
-        cfg8  = (cfg8 & 0x3F) | (3 << 6);   // FIFO_TH = 3 (16 entries)
+        cfg8 = (cfg8 & 0x3F) | (3 << 6);  // FIFO_TH=3 (16 entries)
         writeRegister(AS7341_CFG8, cfg8);
-
-        // Clear FIFO: write bit 1 high then low
-        writeRegister(AS7341_CONTROL, 0x02);
-        writeRegister(AS7341_CONTROL, 0x00);
-
-        // Clear STATUS
-        writeRegister(AS7341_STATUS, 0xFF);
     } else {
-        uint8_t fdcfg0 = getRegister(0xD7);
-        writeRegister(0xD7, fdcfg0 & ~0x80);   // clear FIFO_WRITE_FD
+        uint8_t fdcfg0 = getRegister(AS7341_FD_CFG0);
+        writeRegister(AS7341_FD_CFG0, fdcfg0 & ~0x80);
         writeRegister(AS7341_FIFO_MAP, 0x00);
     }
 }

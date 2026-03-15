@@ -19,3 +19,6 @@ void AS7341_Read_Results_Task(void *pvParameters);
 
 void AS7341_Flicker_Capture_Task(void *pvParameters);
 void AS7341_Spectral_Capture_Task(void *pvParameters);
+
+void setupForSpectral(void);
+void setupForFlicker(uint8_t gain);

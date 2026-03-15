@@ -5,7 +5,7 @@
 #define FREQ_RESOLUTION (SAMPLE_RATE / FFT_SIZE)  // ~0.977 Hz per bin
 #define MAX_PEAKS       10
 #define MIN_PEAK_BIN    2    // ignore DC and bin 1 (~1Hz minimum)
-#define MAX_PEAK_BIN    (FFT_SIZE * 45 / 100)  // cap at 450Hz instead of 1000Hz
+#define MAX_PEAK_BIN    (FFT_SIZE / 4)  // 512 bins = 500Hz at 2000Hz sample rate
 
 // FFT buffers — static so they don't hit task stack
 static float fft_input[FFT_SIZE * 2];   // interleaved real/imag for esp-dsp
@@ -30,7 +30,7 @@ static void findPeaks(float *mag, int binCount, FlickerResult &result) {
     float noiseFloor = sorted[sortLen / 2] * 10.0f;  // 10× median as threshold
 
     // Find local maxima above threshold
-    for (int i = MIN_PEAK_BIN + 1; i < binCount - 1; i++) {
+    for (int i = MIN_PEAK_BIN + 1; i < MAX_PEAK_BIN - 1; i++) {
         if (mag[i] > noiseFloor &&
             mag[i] > mag[i-1] &&
             mag[i] > mag[i+1]) {

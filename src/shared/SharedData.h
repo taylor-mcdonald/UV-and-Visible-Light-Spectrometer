@@ -41,7 +41,7 @@ struct AS7341Reading {
 extern AS7341Reading AS7341_Buffer; // temporary buffer for reading results
 
 extern volatile bool AS7341_SMUX_low; // true = F1-F4, false = F5-F8
-extern volatile uint8_t AS7341_currentGain;
+extern volatile uint8_t AS7341_spectralGainStart;
 extern volatile uint16_t AS7341_current_AStep;
 extern volatile uint8_t AS7341_current_ATime;
 extern volatile long AS7341_Time1;

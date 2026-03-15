@@ -14,7 +14,7 @@ volatile bool AS7341sensorSMUXFlag = false;
 
 volatile bool AS7341_SMUX_low = true; // true = F1-F4, false = F5-F8
 
-volatile uint8_t AS7341_currentGain = 1; // default gain 1x
+volatile uint8_t AS7341_spectralGainStart = 5; // 16x starting gain for spectral AGC
 volatile uint16_t AS7341_current_AStep = 599;
 volatile uint8_t AS7341_current_ATime = 29;
 
