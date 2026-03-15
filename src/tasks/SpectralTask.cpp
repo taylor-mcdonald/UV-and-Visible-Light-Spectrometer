@@ -66,7 +66,7 @@ void startSpectralTasks() {
     Serial.println(result == pdPASS ? "OK" : "FAILED");
 }
 
-void setupForSpectral() {
+void setupForSpectral(bool lowChannels) {
     // Full stop
     as7341.writeRegister(AS7341_ENABLE, 0x00);
     vTaskDelay(pdMS_TO_TICKS(5));
@@ -75,55 +75,43 @@ void setupForSpectral() {
     as7341.setATIME(AS7341_current_ATime);
     as7341.setASTEP(AS7341_current_AStep);
 
-    // Wait time between measurements
-    as7341.writeRegister(AS7341_WTIME, 89);  // ~250ms
-
-    // Starting gain — AGC will adjust from here
-    as7341.writeRegister(AS7341_CFG1, AS7341_spectralGainStart);
-
-    // AZ_CONFIG (0xD6): autozero frequency for spectral ADC
-    // 0xFF = only before first measurement (default)
-    // 0x01 = every cycle
-    as7341.writeRegister(AS7341_AZ_CONFIG, 0x0F);
-
     // Spectral AGC thresholds — target 10% low, 90% high
-    as7341.writeRegister(AS7341_SP_LOW_TH_L,  0x99);  // 10% of 0xFFFF
+    as7341.writeRegister(AS7341_SP_LOW_TH_L,  0x99);
     as7341.writeRegister(AS7341_SP_LOW_TH_H,  0x19);
-    as7341.writeRegister(AS7341_SP_HIGH_TH_L, 0x66);  // 90% of 0xFFFF
+    as7341.writeRegister(AS7341_SP_HIGH_TH_L, 0x66);
     as7341.writeRegister(AS7341_SP_HIGH_TH_H, 0xE6);
 
-    // CFG8 (0xB1): SP_AGC on, FD_AGC off, FIFO_TH=2 (8 entries)
+    // CFG8: SP_AGC off (we do it in software), FD_AGC off
     uint8_t cfg8 = as7341.getRegister(AS7341_CFG8);
-    cfg8 |=  AS7341_SPECTRAL_AUTO_GAIN;   // set SP_AGC
-    cfg8 &= ~AS7341_FLICKER_AUTO_GAIN;   // clear FD_AGC
-    cfg8  = (cfg8 & 0x3F) | (2 << 6);   // FIFO_TH=2
+    cfg8 &= ~AS7341_SPECTRAL_AUTO_GAIN;
+    cfg8 &= ~AS7341_FLICKER_AUTO_GAIN;
     as7341.writeRegister(AS7341_CFG8, cfg8);
 
-    // CFG10 (0xB3): AGC hysteresis AGC_H=87.5%, AGC_L=12.5%
+    // CFG10: AGC hysteresis — 87.5% high, 12.5% low
+    // CFG10: AGC hysteresis — kept for reference, not used by hw AGC now
     as7341.writeRegister(AS7341_CFG10, 0xC2);
 
-    // SMUX configuration
-    // SMUX — write channel config, then trigger load
-    as7341.writeRegister(AS7341_CFG6, 0x10);  // set SMUX command: write from RAM
-    if (AS7341_SMUX_low) {
+    // SMUX: write channel config then trigger load
+    as7341.writeRegister(AS7341_CFG6, 0x10);   // SMUX_CMD = write from RAM
+    if (lowChannels) {
         as7341.setup_F1F4_Clear_NIR();
     } else {
         as7341.setup_F5F8_Clear_NIR();
     }
-    // Trigger SMUX load: SMUXEN + WEN + PON
-    as7341.writeRegister(AS7341_ENABLE, 0x19);
-    while (as7341.getRegister(AS7341_ENABLE) & 0x10) {
+    // SMUXEN + PON — no WEN, we are manually triggering each integration
+    as7341.writeRegister(AS7341_ENABLE, 0x11);
+    while (as7341.getRegister(AS7341_ENABLE) & 0x10) {  // wait for SMUXEN to clear
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 
-    // Interrupts — spectral complete and saturation only
-    as7341.writeRegister(AS7341_INTENAB, 0x81); // ASIEN + SIEN
+    // Interrupts: ASIEN (spectral complete) + SIEN (system)
+    as7341.writeRegister(AS7341_INTENAB, 0x81);
 
-    // Clear status
+    // Clear any stale status
     as7341.writeRegister(AS7341_STATUS, 0xFF);
 
-    // Enable spectral measurements — SP_EN + WEN + PON
-    as7341.writeRegister(AS7341_ENABLE, 0x0B);
+    // SP_EN + PON — start one integration, no WEN
+    as7341.writeRegister(AS7341_ENABLE, 0x03);
 }
 
 void setupForFlicker(uint8_t fdGain) {
@@ -182,26 +170,20 @@ void setupForFlicker(uint8_t fdGain) {
 }
 
 void AS7341_Flicker_Capture_Task(void *pvParameters) {
-    const TickType_t pauseCheckInterval = pdMS_TO_TICKS(50);
+    const TickType_t pauseCheckInterval = pdMS_TO_TICKS(10);
 
     // Starting gain for software AGC — 32x (gain=6) is appropriate for
     // indoor office lighting. AGC will adjust up or down each cycle.
-    uint8_t fdGain = 6;
+    uint8_t fdGain = 4;
 
     Serial.println("FlickerCaptureTask: task entered");
     vTaskDelay(pdMS_TO_TICKS(2000));
     Serial.println("FlickerCaptureTask: starting");
 
     for (;;) {
-        // SpectralCaptureTask sets spectralCaptureInProgress when it needs
-        // the sensor — yield until it is done
-        if (spectralCaptureInProgress) {
-            Serial.println("FlickerCaptureTask: pausing for spectral capture");
-            while (spectralCaptureInProgress) {
-                vTaskDelay(pauseCheckInterval);
-            }
-            Serial.println("FlickerCaptureTask: resuming");
-        }
+
+        // ── WAIT FOR BUS — blocks if spectral capture is in progress ──────
+        xSemaphoreTake(spectralDoneSemaphore, portMAX_DELAY);
 
         // Configure sensor for flicker capture, applying current AGC gain.
         // setupForFlicker() does a full stop/restart cycle so FD_TIME2 (0xDA)
@@ -293,15 +275,99 @@ void AS7341_Flicker_Capture_Task(void *pvParameters) {
             }
         }
 
+        xSemaphoreGive(spectralDoneSemaphore);
+
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
 
 void AS7341_Spectral_Capture_Task(void *pvParameters) {
-    // Stub — full implementation in Step 5
-    Serial.println("SpectralCaptureTask: started (stub)");
+    const TickType_t captureInterval  = pdMS_TO_TICKS(2000);
+    const TickType_t dataReadyTimeout = pdMS_TO_TICKS(500);
+    const TickType_t pollInterval     = pdMS_TO_TICKS(5);
+
+    // AGC thresholds tuned for indoor/outdoor ambient light with ATIME=29, ASTEP=599
+    // Full scale = 65535. Target operating range: ~5% to 75%.
+    const uint16_t AGC_LOW  = 1000;   // below this → increase gain
+    const uint16_t AGC_HIGH = 50000;  // above this → decrease gain
+    const uint8_t  GAIN_MIN = 0;
+    const uint8_t  GAIN_MAX = 10;
+
+    Serial.println("SpectralCaptureTask: starting");
+
+    // Write initial gain to sensor once at startup
+    as7341.writeRegister(AS7341_CFG1, AS7341_spectralGain);
+
+    TickType_t lastWake = xTaskGetTickCount();
+
     for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(60000));
+        // ── TAKE BUS — blocks flicker task until we give it back ──────────
+        xSemaphoreTake(spectralDoneSemaphore, portMAX_DELAY);
+
+        // ── PASS 1: LOW CHANNELS (F1, F2, F3, F4, Clear, NIR) ────────────
+        setupForSpectral(true);
+
+        AS7341Reading lowReading = {};
+        bool lowOk = false;
+        uint32_t t0 = millis();
+        while ((millis() - t0) < dataReadyTimeout) {
+            if (as7341.getIsDataReady()) {
+                lowOk = as7341.getResults(lowReading);
+                break;
+            }
+            vTaskDelay(pollInterval);
+        }
+        if (!lowOk) Serial.println("SpectralCaptureTask: LOW pass timeout");
+
+        // ── PASS 2: HIGH CHANNELS (F5, F6, F7, F8, Clear, NIR) ──────────
+        setupForSpectral(false);
+
+        AS7341Reading highReading = {};
+        bool highOk = false;
+        t0 = millis();
+        while ((millis() - t0) < dataReadyTimeout) {
+            if (as7341.getIsDataReady()) {
+                highOk = as7341.getResults(highReading);
+                break;
+            }
+            vTaskDelay(pollInterval);
+        }
+        if (!highOk) Serial.println("SpectralCaptureTask: HIGH pass timeout");
+
+        // ── SOFTWARE AGC ──────────────────────────────────────────────────────
+        // Always run AGC, even on timeout. If reads failed, ref=0 which is
+        // legitimately "too dark" and should drive gain up.
+        uint16_t ref = highOk ? highReading.Clr : (lowOk ? lowReading.Clr : 0);
+        bool sat     = (highOk && highReading.saturation) || (lowOk && lowReading.saturation);
+
+        Serial.printf("SpectralAGC: gain=%u Clr=%u sat=%d\n",
+            AS7341_spectralGain, ref, sat);
+
+        uint8_t newGain = AS7341_spectralGain;
+        if (sat || ref >= AGC_HIGH) {
+            if (newGain > GAIN_MIN) newGain--;
+        } else if (ref < AGC_LOW) {
+            if (newGain < GAIN_MAX) newGain++;
+        }
+
+        if (newGain != AS7341_spectralGain) {
+            AS7341_spectralGain = newGain;
+            as7341.writeRegister(AS7341_CFG1, AS7341_spectralGain);
+        }
+
+        // ── STAMP SOFTWARE GAIN INTO READINGS ────────────────────────────────
+        // ASTATUS gain is the gain active during that integration — correct.
+        // But we also store our commanded gain for diagnostics.
+        lowReading.gain  = AS7341_spectralGain;
+        highReading.gain = AS7341_spectralGain;
+
+        // ── STORE IN HISTORY ──────────────────────────────────────────────
+        if (lowOk)  addAS7341Reading_low(lowReading);
+        if (highOk) addAS7341Reading_high(highReading);
+
+        xSemaphoreGive(spectralDoneSemaphore);
+
+        vTaskDelayUntil(&lastWake, captureInterval);
     }
 }

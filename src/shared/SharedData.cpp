@@ -14,7 +14,7 @@ volatile bool AS7341sensorSMUXFlag = false;
 
 volatile bool AS7341_SMUX_low = true; // true = F1-F4, false = F5-F8
 
-volatile uint8_t AS7341_spectralGainStart = 5; // 16x starting gain for spectral AGC
+volatile uint8_t AS7341_spectralGain = 5; // 16x starting gain for spectral AGC
 volatile uint16_t AS7341_current_AStep = 599;
 volatile uint8_t AS7341_current_ATime = 29;
 
@@ -94,16 +94,25 @@ void printByteBinary(uint8_t value) {
   Serial.println();
 }
 
-float batteryVoltage = 0.0f;
-float batteryPercent = 0.0f;
-
+BatteryReading batteryReading = {};
 
 FlickerResult flickerResult = {};
-volatile bool spectralCaptureInProgress = false;
 TaskHandle_t flickerCaptureTaskHandle = nullptr;
 TaskHandle_t fftTaskHandle            = nullptr;
 TaskHandle_t spectralCaptureTaskHandle = nullptr;
 QueueHandle_t flickerQueue            = nullptr;
 
 uint16_t *flickerSamples = nullptr;
+SemaphoreHandle_t spectralDoneSemaphore = nullptr;
 
+void addAS7341Reading_low(AS7341Reading &r) {
+    r.timestamp = millis();
+    AS7341_history_low[AS7341_historyIndex_low] = r;
+    AS7341_historyIndex_low = (AS7341_historyIndex_low + 1) % AS7341_HISTORY_SIZE;
+}
+
+void addAS7341Reading_high(AS7341Reading &r) {
+    r.timestamp = millis();
+    AS7341_history_high[AS7341_historyIndex_high] = r;
+    AS7341_historyIndex_high = (AS7341_historyIndex_high + 1) % AS7341_HISTORY_SIZE;
+}

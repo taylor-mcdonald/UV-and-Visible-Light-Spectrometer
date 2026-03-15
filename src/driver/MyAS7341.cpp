@@ -158,32 +158,33 @@ bool Adafruit_AS7341::readAllChannels(uint16_t *readings_buffer) {
          channel_data_reg.read((uint8_t *)&readings_buffer[6], 12);
 }
 
-bool Adafruit_AS7341::getResults(AS7341Reading &measurment) {
-  uint8_t buffer[13];  // 1 status + 12 ADC data bytes
+bool Adafruit_AS7341::getResults(AS7341Reading &measurement) {
+    uint8_t buffer[13];  // 1 status + 6 ADC channels × 2 bytes
 
-  // set the starting register for a burst read
-  Adafruit_BusIO_Register results_data_reg =
-      Adafruit_BusIO_Register(i2c_dev, AS7341_ASTATUS_, 1);
+    Adafruit_BusIO_Register results_data_reg =
+        Adafruit_BusIO_Register(i2c_dev, AS7341_ASTATUS_, 1);
 
-  // Read the status byte and all 6 ADC channels (2 bytes each)
-  if (!results_data_reg.read(buffer, 13)) {
-    return false;
-  }
+    if (!results_data_reg.read(buffer, 13)) {
+        return false;
+    }
 
-  // --- Decode status byte ---
-  uint8_t status = buffer[0];
-  measurment.saturation = status & 0x80;  // bit 7
-  measurment.gain       = status & 0x0F;  // bits 3:0
+    // ASTATUS byte: gain code in bits 3:0 — ignore bit 7 (AGAIN_SAT, hw AGC only)
+    measurement.gain = buffer[0] & 0x0F;
 
-  // --- Decode ADC data ---
-  measurment.F1_F5 = (buffer[1] | (buffer[2] << 8));
-  measurment.F2_F6 = (buffer[3] | (buffer[4] << 8));
-  measurment.F3_F7 = (buffer[5] | (buffer[6] << 8));
-  measurment.F4_F8 = (buffer[7] | (buffer[8] << 8));
-  measurment.Clr  = (buffer[9] | (buffer[10] << 8));
-  measurment.NIR  = (buffer[11] | (buffer[12] << 8));
+    // ADC channel data — order matches SMUX assignment (ADC0–ADC5)
+    measurement.F1_F5 = (uint16_t)buffer[1]  | ((uint16_t)buffer[2]  << 8);
+    measurement.F2_F6 = (uint16_t)buffer[3]  | ((uint16_t)buffer[4]  << 8);
+    measurement.F3_F7 = (uint16_t)buffer[5]  | ((uint16_t)buffer[6]  << 8);
+    measurement.F4_F8 = (uint16_t)buffer[7]  | ((uint16_t)buffer[8]  << 8);
+    measurement.Clr   = (uint16_t)buffer[9]  | ((uint16_t)buffer[10] << 8);
+    measurement.NIR   = (uint16_t)buffer[11] | ((uint16_t)buffer[12] << 8);
 
-  return true;
+    // Real saturation flags are in STATUS2 (0xA3), not ASTATUS
+    // bit 4 = ASAT_DIGITAL, bit 3 = ASAT_ANALOG
+    uint8_t status2 = getRegister(AS7341_STATUS2);
+    measurement.saturation = (status2 & 0x18) != 0;  // either analog or digital sat
+
+    return true;
 }
 
 /**

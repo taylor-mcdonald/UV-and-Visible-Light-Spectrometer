@@ -417,6 +417,19 @@ void screenTask(void *pvParameters) {
         display.print(batteryVoltage, 3);
         display.println("V");
 
+        // --- charge rate ---
+        display.setCursor(80, 48);
+        if (batteryReading.changeRate > 0.5f) {
+            display.print("+");
+            display.print(batteryReading.changeRate, 1);
+            display.print("%/h");        // charging
+        } else if (batteryReading.changeRate < -0.5f) {
+            display.print(batteryReading.changeRate, 1);
+            display.print("%/h");        // discharging
+        } else {
+            display.print("~stable");    // near zero — full or idle
+        }
+
         // --- Label ---
         display.setCursor(104, 56);
         display.print("BAT");

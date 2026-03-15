@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <freertos/queue.h>
+#include <freertos/semphr.h>
 //#include <Adafruit_AS7341.h>
 
 // ================== Global Variables ==================
@@ -33,15 +34,12 @@ struct AS7341Reading {
   uint16_t Clr; // Clear Channel	
   uint8_t gain;      // Current gain setting
   bool saturation;
-  uint16_t flicker_hz;  // 0 until flicker detection is implemented
   long IntegrationTime;
   unsigned long timestamp;
 };
 
-extern AS7341Reading AS7341_Buffer; // temporary buffer for reading results
-
 extern volatile bool AS7341_SMUX_low; // true = F1-F4, false = F5-F8
-extern volatile uint8_t AS7341_spectralGainStart;
+extern volatile uint8_t AS7341_spectralGain;
 extern volatile uint16_t AS7341_current_AStep;
 extern volatile uint8_t AS7341_current_ATime;
 extern volatile long AS7341_Time1;
@@ -96,9 +94,21 @@ void printByteBinary(uint8_t value);
 void addBME680Reading(float temp, float humid, float press, float gas_resistance);
 void printLatestBME680(void);
 
-extern float batteryVoltage;
-extern float batteryPercent;
+void addAS7341Reading_low(AS7341Reading &r);
+void addAS7341Reading_high(AS7341Reading &r);
 
+struct BatteryReading {
+    float voltage;
+    float percent;
+    float changeRate;   // %/hour, positive=charging, negative=discharging
+    unsigned long timestamp;
+};
+
+extern BatteryReading batteryReading;
+
+// Keep these as convenience aliases so existing screen code compiles unchanged
+#define batteryVoltage batteryReading.voltage
+#define batteryPercent batteryReading.percent
 
 // ─── Flicker Detection ────────────────────────────────────────────────────────
 
@@ -118,9 +128,10 @@ struct FlickerResult {
 
 
 extern FlickerResult flickerResult;
-extern volatile bool spectralCaptureInProgress;
 extern TaskHandle_t flickerCaptureTaskHandle;
 extern TaskHandle_t fftTaskHandle;
 extern TaskHandle_t spectralCaptureTaskHandle;
 extern QueueHandle_t flickerQueue;       // sends FlickerBuffer* to FFT task
 extern uint16_t *flickerSamples;    
+
+extern SemaphoreHandle_t spectralDoneSemaphore;  // flicker blocks on this

@@ -103,6 +103,9 @@ void setup() {
   
   i2cMutex = xSemaphoreCreateMutex();  // must be first
 
+  spectralDoneSemaphore = xSemaphoreCreateBinary();
+  xSemaphoreGive(spectralDoneSemaphore);  // starts in "available" state so flicker can run
+
   flickerSamples = (uint16_t *)ps_malloc(FLICKER_SAMPLE_COUNT * sizeof(uint16_t));
   if (!flickerSamples) {
       Serial.println("ERROR: PSRAM allocation failed for flickerSamples");
@@ -149,7 +152,7 @@ void setup() {
   
   initAS7341Sensor(Wire1);
 
-  //initFuelGauge(Wire);
+  initFuelGauge(Wire);
 
   display.clearDisplay();
   display.setCursor(10, 28);
@@ -184,7 +187,7 @@ void setup() {
   startSpectralTasks();
   startButtonTasks();
 
-  //startFuelGaugeTask();
+  startFuelGaugeTask();
   startBLETask();     // last
 
   xTaskCreatePinnedToCore(mutexWatchdogTask, "MutexWatchdog", 2048, NULL, 2, NULL, tskNO_AFFINITY);

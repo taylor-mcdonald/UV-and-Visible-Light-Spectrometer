@@ -9,9 +9,11 @@ void updateAS7341LowCharacteristic();
 void updateAS7341HighCharacteristic();
 void updateUVCharacteristic();
 void updateBatteryCharacteristic();
+void updateFlickerCharacteristic();
 
 extern NimBLECharacteristic* pBME680Characteristic;
 extern NimBLECharacteristic* pAS7341LowCharacteristic;
 extern NimBLECharacteristic* pAS7341HighCharacteristic;
 extern NimBLECharacteristic* pUVCharacteristic;
 extern NimBLECharacteristic* pBatteryCharacteristic;
+extern NimBLECharacteristic* pFlickerCharacteristic;
