@@ -81,6 +81,11 @@ void setupForSpectral() {
     // Starting gain — AGC will adjust from here
     as7341.writeRegister(AS7341_CFG1, AS7341_spectralGainStart);
 
+    // AZ_CONFIG (0xD6): autozero frequency for spectral ADC
+    // 0xFF = only before first measurement (default)
+    // 0x01 = every cycle
+    as7341.writeRegister(AS7341_AZ_CONFIG, 0x0F);
+
     // Spectral AGC thresholds — target 10% low, 90% high
     as7341.writeRegister(AS7341_SP_LOW_TH_L,  0x99);  // 10% of 0xFFFF
     as7341.writeRegister(AS7341_SP_LOW_TH_H,  0x19);
@@ -122,63 +127,74 @@ void setupForSpectral() {
 }
 
 void setupForFlicker(uint8_t fdGain) {
-    // Full stop — required before writing FD_TIME2 (0xDA)
+    // Full stop — FDEN=0 and PON=0 required before writing
+    // FD_TIME1 (0xD8) and FD_TIME2 (0xDA) per datasheet
     as7341.writeRegister(AS7341_ENABLE, 0x00);
     vTaskDelay(pdMS_TO_TICKS(5));
 
-    // Safe write window: FDEN=0, PON=0
+    // Set flicker integration time — FLICKER_FD_TIME=180 → 500μs per sample → 2000 samples/sec
+    // FD_TIME2 (0xDA) bits 7:3 = FD_GAIN, bits 2:0 = FD_TIME MSB (always 0 for FD_TIME=180)
     as7341.writeRegister(AS7341_FD_TIME1, FLICKER_FD_TIME & 0xFF);
-    uint8_t fdt2 = as7341.getRegister(AS7341_FD_TIME2);
-    as7341.writeRegister(AS7341_FD_TIME2, (fdGain << 3) & 0xF8);  // MSB bits = 0, gain in bits 7:3
+    as7341.writeRegister(AS7341_FD_TIME2, (fdGain << 3) & 0xF8);
 
-    // Autozero every cycle
-    as7341.writeRegister(AS7341_AZ_CONFIG, 0x01);
+    // AZ_CONFIG (0xD6): set to 0 to disable autozero when FDEN=1
+    // If non-zero, autozero fires on ADC5 and interrupts flicker detection
+    as7341.writeRegister(AS7341_AZ_CONFIG, 0x00);
 
-    // CFG8 (0xB1): both AGC bits clear, FIFO_TH=3 (16 entries)
+    // CFG8 (0xB1):
+    // - Clear AS7431_FLICKER_AUTO_GAIN (bit 3) — hardware FD AGC non-functional without SP_EN
+    // - Clear AS7431_SPECTRAL_AUTO_GAIN (bit 2) — SP_EN never set in flicker mode
+    // - FIFO_TH (bits 7:6) = 3 → 16-entry threshold before FINT asserts
     uint8_t cfg8 = as7341.getRegister(AS7341_CFG8);
     cfg8 &= ~AS7341_FLICKER_AUTO_GAIN;
     cfg8 &= ~AS7341_SPECTRAL_AUTO_GAIN;
     cfg8  = (cfg8 & 0x3F) | (3 << 6);
     as7341.writeRegister(AS7341_CFG8, cfg8);
 
-    // AGC_GAIN_MAX (0xCF): ceiling at 9 (256x), preserve lower nibble
+    // AGC_GAIN_MAX (0xCF) bits 7:4 = AGC_FD_GAIN_MAX — cap hardware AGC ceiling at 9 (256x)
+    // Software AGC uses this same range: 0 (0.5x) through 9 (256x)
     uint8_t agcMax = as7341.getRegister(AS7341_AGC_GAIN_MAX);
     as7341.writeRegister(AS7341_AGC_GAIN_MAX, (agcMax & 0x0F) | (9 << 4));
 
-    // Interrupts — none needed for FIFO polling
+    // No interrupts needed — FlickerCaptureTask polls FIFO_LVL (0xFD) directly
     as7341.writeRegister(AS7341_INTENAB, 0x00);
 
-    // Clear status
+    // Clear all status flags before starting
     as7341.writeRegister(AS7341_STATUS, 0xFF);
 
-    // PON only
+    // PON only — SMUX configuration must happen before FDEN is set
     as7341.writeRegister(AS7341_ENABLE, 0x01);
     vTaskDelay(pdMS_TO_TICKS(5));
 
-    // SMUX for flicker
+    // Configure SMUX to route flicker photodiode to FD channel
     as7341.setupFDSmux();
 
-    // FIFO configuration
+    // Configure FIFO — sets FIFO_WRITE_FD (FD_CFG0 0xD7 bit 7) so flicker
+    // data routes to FIFO, sets FIFO_TH in CFG8 (0xB1)
     as7341.configureFIFO_FD(true);
 
-    // FDEN + PON only — no SP_EN
+    // FDEN + PON only — SP_EN must never be set in flicker capture mode
     as7341.writeRegister(AS7341_ENABLE, 0x41);
 
-    // Flush FIFO
+    // Flush any stale data from FIFO before capture begins
     as7341.writeRegister(AS7341_CONTROL, 0x02);
     as7341.writeRegister(AS7341_CONTROL, 0x00);
 }
 
 void AS7341_Flicker_Capture_Task(void *pvParameters) {
     const TickType_t pauseCheckInterval = pdMS_TO_TICKS(50);
-    uint8_t fdGain = 6;  // 32x starting gain for indoor office
+
+    // Starting gain for software AGC — 32x (gain=6) is appropriate for
+    // indoor office lighting. AGC will adjust up or down each cycle.
+    uint8_t fdGain = 6;
 
     Serial.println("FlickerCaptureTask: task entered");
     vTaskDelay(pdMS_TO_TICKS(2000));
     Serial.println("FlickerCaptureTask: starting");
 
     for (;;) {
-        // Yield to spectral capture if needed
+        // SpectralCaptureTask sets spectralCaptureInProgress when it needs
+        // the sensor — yield until it is done
         if (spectralCaptureInProgress) {
             Serial.println("FlickerCaptureTask: pausing for spectral capture");
             while (spectralCaptureInProgress) {
@@ -187,33 +203,15 @@ void AS7341_Flicker_Capture_Task(void *pvParameters) {
             Serial.println("FlickerCaptureTask: resuming");
         }
 
-        // ── CONFIGURE SENSOR FOR FLICKER CAPTURE ─────────────────────────
+        // Configure sensor for flicker capture, applying current AGC gain.
+        // setupForFlicker() does a full stop/restart cycle so FD_TIME2 (0xDA)
+        // can be written safely.
         setupForFlicker(fdGain);
 
-        // Diagnostics — remove after validated
-        Serial.print("ENABLE: 0x");    Serial.println(as7341.getRegister(AS7341_ENABLE), HEX);
-        Serial.print("CONTROL: 0x");   Serial.println(as7341.getRegister(AS7341_CONTROL), HEX);
-        Serial.print("FD_TIME1: ");    Serial.println(as7341.getRegister(AS7341_FD_TIME1));
-        Serial.print("FD_TIME2: 0x");  Serial.println(as7341.getRegister(AS7341_FD_TIME2), HEX);
-        Serial.print("FIFO_MAP: 0x");  Serial.println(as7341.getRegister(AS7341_FIFO_MAP), HEX);
-        Serial.print("FD_CFG0: 0x");   Serial.println(as7341.getRegister(AS7341_FD_CFG0), HEX);
-        Serial.print("FD_STATUS: 0x"); Serial.println(as7341.getRegister(AS7341_FD_STATUS), HEX);
-        Serial.print("STATUS2: 0x");   Serial.println(as7341.getRegister(AS7341_STATUS2), HEX);
-        Serial.print("CFG8: 0x");      Serial.println(as7341.getRegister(AS7341_CFG8), HEX);
-        Serial.print("AZ_CONFIG: 0x"); Serial.println(as7341.getRegister(AS7341_AZ_CONFIG), HEX);
-
-        uint8_t fdt2 = as7341.getRegister(AS7341_FD_TIME2);
-        uint8_t fdGainRead = (fdt2 >> 3) & 0x1F;
-        uint8_t fdTimeMSB  = fdt2 & 0x07;
-        uint16_t fdTime    = ((uint16_t)fdTimeMSB << 8) | as7341.getRegister(AS7341_FD_TIME1);
-        float gainMultiplier = 0.5f * (1 << fdGainRead);
-        Serial.print("FD_TIME2: 0x"); Serial.print(fdt2, HEX);
-        Serial.print("  FD_GAIN="); Serial.print(fdGainRead);
-        Serial.print(" ("); Serial.print(gainMultiplier, 0); Serial.print("x)");
-        Serial.print("  FD_TIME_MSB="); Serial.println(fdTimeMSB);
-        Serial.print("Calculated FD_TIME(μs): "); Serial.println(fdTime * 2.78f);
-
         // ── CAPTURE 2048 SAMPLES ──────────────────────────────────────────
+        // Poll FIFO until we have a full buffer or timeout.
+        // At 2000 samples/sec with FIFO_TH=16, FIFO fills every ~8ms.
+        // captureTimeout is 2× expected duration as a safety net.
         uint16_t samplesCollected = 0;
         uint32_t captureStart = millis();
         const uint32_t captureTimeout = 4000;
@@ -232,19 +230,13 @@ void AS7341_Flicker_Capture_Task(void *pvParameters) {
             }
         }
 
-        uint32_t elapsed = millis() - captureStart;
-        Serial.print("FlickerCapture: samples="); Serial.print(samplesCollected);
-        Serial.print(" elapsed_ms="); Serial.println(elapsed);
-
-        Serial.print("samples[0-19]: ");
-        for (int i = 0; i < 20 && i < samplesCollected; i++) {
-            Serial.print(flickerSamples[i]);
-            Serial.print(" ");
-        }
-        Serial.println();
-
         if (samplesCollected == FLICKER_SAMPLE_COUNT) {
             // ── READ SATURATION FLAGS ─────────────────────────────────────
+            // STATUS2 (0xA3) bit 1 = FDSAT_ANALOG: photodiode analog circuit
+            //   overloaded — light too intense for sensor physically
+            // STATUS2 (0xA3) bit 0 = FDSAT_DIGITAL: counter maxed out —
+            //   gain too high
+            // FD_STATUS (0xDB) bit 4 = FD_SAT: general flicker saturation
             uint8_t status2  = as7341.getRegister(AS7341_STATUS2);
             uint8_t fdStatus = as7341.getRegister(AS7341_FD_STATUS);
 
@@ -252,42 +244,49 @@ void AS7341_Flicker_Capture_Task(void *pvParameters) {
             bool fdsat_digital = (status2  >> 0) & 0x01;
             bool fd_sat        = (fdStatus >> 4) & 0x01;
 
-            Serial.print("fdsat_analog=");  Serial.print(fdsat_analog);
-            Serial.print(" fdsat_digital="); Serial.print(fdsat_digital);
-            Serial.print(" fd_sat=");        Serial.print(fd_sat);
-            Serial.print(" peakVal=");
-
             // ── COMPUTE PEAK ──────────────────────────────────────────────
+            // Peak sample value drives AGC and weak-signal detection.
+            // At gain=9 (256x), ADC ceiling is ~181 counts under normal
+            // conditions; analog saturation pegs samples at 437.
             uint16_t peakVal = 0;
             for (int i = 0; i < FLICKER_SAMPLE_COUNT; i++) {
                 if (flickerSamples[i] > peakVal) peakVal = flickerSamples[i];
             }
-            Serial.println(peakVal);
 
             // ── SOFTWARE AGC ──────────────────────────────────────────────
+            // Hardware FD AGC (CFG8 bit 3) is non-functional without SP_EN.
+            // Gain is adjusted here and applied at the top of the next cycle
+            // via setupForFlicker(fdGain). Gain range: 0 (0.5x) to 9 (256x).
+            // Target peak range: 60–160 counts.
             if (fdsat_analog && fdGain > 0) {
+                // Analog overload — reduce gain aggressively even though
+                // the photodiode itself is saturated
                 flickerResult.valid = false;
-                fdGain -= 2;  // reduce even for analog sat — less gain = less current into ADC
+                fdGain -= 2;
             } else if (fdsat_digital && fdGain > 0) {
+                // Digital counter overflow — gain too high
                 fdGain -= 2;
             } else if (fd_sat && fdGain > 0) {
+                // General saturation — back off gently
                 fdGain -= 1;
             } else if (peakVal < 20 && fdGain < 9) {
+                // Signal very weak — increase gain aggressively
                 fdGain += 2;
             } else if (peakVal < 60 && fdGain < 9) {
+                // Signal below target range — increase gain
                 fdGain += 1;
             } else if (peakVal > 160 && fdGain > 0) {
+                // Signal above target range — reduce gain
                 fdGain -= 1;
             }
             fdGain = constrain(fdGain, 0, 9);
-            Serial.print("fdGain after AGC: "); Serial.println(fdGain);
 
-            
-            // Skip sending to FFT if signal is at noise floor
+            // ── SEND TO FFT ───────────────────────────────────────────────
+            // Discard captures that are too weak (noise floor) or saturated.
+            // FFT task receives a pointer to flickerSamples in PSRAM.
             if (peakVal < 10) {
-                Serial.println("FFT: skipping — signal too weak");
+                // Signal at quantization noise floor — FFT would find spurious peaks
                 flickerResult.valid = false;
-            // ── SEND TO FFT IF CLEAN ──────────────────────────────────────
             } else if (!fdsat_analog && !fdsat_digital && !fd_sat) {
                 uint16_t *pSamples = flickerSamples;
                 xQueueSend(flickerQueue, &pSamples, pdMS_TO_TICKS(100));
