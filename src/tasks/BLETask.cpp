@@ -92,11 +92,11 @@ void bleTask(void* pvParameters) {
         // Only send notifications if a client is connected
         if (NimBLEDevice::getServer()->getConnectedCount() > 0) {
             updateBME680Characteristic();
-            updateAS7341LowCharacteristic();
-            updateAS7341HighCharacteristic();
-            updateUVCharacteristic();
+            //updateAS7341LowCharacteristic();
+            //updateAS7341HighCharacteristic();
+            //updateUVCharacteristic();   // UV is updated immediately from the UV task, no need to repeat here
             updateBatteryCharacteristic(); 
-            updateFlickerCharacteristic();
+            //updateFlickerCharacteristic();
         }
         vTaskDelayUntil(&lastWake, interval);
     }

@@ -4,6 +4,7 @@
 #include "shared/I2CBus.h"
 #include <Wire.h>
 #include "FFT.h"
+#include "BLETask.h"
 
 
 Adafruit_AS7341 as7341; // Create an instance of the AS7341 sensor object
@@ -365,6 +366,12 @@ void AS7341_Spectral_Capture_Task(void *pvParameters) {
         // ── STORE IN HISTORY ──────────────────────────────────────────────
         if (lowOk)  addAS7341Reading_low(lowReading);
         if (highOk) addAS7341Reading_high(highReading);
+
+        // ── NOTIFY BLE IMMEDIATELY ────────────────────────────────────────
+        if (NimBLEDevice::getServer()->getConnectedCount() > 0) {
+            updateAS7341LowCharacteristic();
+            updateAS7341HighCharacteristic();
+        }
 
         xSemaphoreGive(spectralDoneSemaphore);
 

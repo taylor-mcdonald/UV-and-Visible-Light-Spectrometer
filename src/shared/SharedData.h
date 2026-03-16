@@ -63,7 +63,7 @@ struct BME680Reading {
 //  4 - AS7341 Data (visible spectrum)
 //  5 - Bar Chart of AS7341 and UV Index
 extern volatile int ScreenDisplay;
-#define NumOfScreens 8
+#define NumOfScreens 9
 
 // Create a rotating history of all sensor readings
 #define UVHISTORY_SIZE 120

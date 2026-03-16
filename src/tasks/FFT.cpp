@@ -1,4 +1,5 @@
 #include "FFT.h"
+#include "BLETask.h"
 
 #define FFT_SIZE        2048
 #define SAMPLE_RATE     2000.0f
@@ -155,6 +156,10 @@ void AS7341_FFT_Task(void *pvParameters) {
 
         // Atomic-ish update — Core 1 only writes, Core 0 only reads
         flickerResult = result;
+
+        if (result.valid && NimBLEDevice::getServer()->getConnectedCount() > 0) {
+            updateFlickerCharacteristic();
+        }
 
         Serial.printf("FFT: %dms, %d peaks found:\n", millis() - fftStart, result.peakCount);
         for (int i = 0; i < result.peakCount; i++) {

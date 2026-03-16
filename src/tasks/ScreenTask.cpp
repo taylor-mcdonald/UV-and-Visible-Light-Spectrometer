@@ -437,6 +437,77 @@ void screenTask(void *pvParameters) {
         break;
       };
 
+      case 8: {
+        // ── FLICKER FREQUENCY DOMAIN PLOT ────────────────────────────────
+
+        // Chart geometry
+        const int chartX      = 5;    // left margin (room for "0" label)
+        const int chartY      = 10;   // top of chart
+        const int chartW      = 118;  // 0–500Hz mapped across this width
+        const int chartH      = 44;   // bar height area
+        const int baselineY   = chartY + chartH;  // y=54
+        const float freqMax   = 500.0f;
+
+        display.setTextSize(1);
+
+        // ── TITLE ─────────────────────────────────────────────────────────
+        display.setCursor(0, 0);
+        display.print("Flicker ");
+        if (!flickerResult.valid || flickerResult.peakCount == 0) {
+            display.print("-- no signal --");
+        } else {
+            // Show dominant peak (index 0 is lowest freq, find highest magnitude)
+            uint8_t domIdx = 0;
+            for (uint8_t i = 1; i < flickerResult.peakCount; i++) {
+                if (flickerResult.magnitudes[i] > flickerResult.magnitudes[domIdx])
+                    domIdx = i;
+            }
+            display.print(flickerResult.peaks[domIdx], 1);
+            display.print("Hz");
+        }
+
+        // ── BASELINE ──────────────────────────────────────────────────────
+        display.drawFastHLine(chartX, baselineY, chartW, SSD1306_WHITE);
+
+        // ── FREQUENCY AXIS LABELS ─────────────────────────────────────────
+        display.setCursor(chartX, baselineY + 2);
+        display.print("0");
+        display.setCursor(chartX + chartW/2 - 6, baselineY + 2);
+        display.print("250");
+        display.setCursor(chartX + chartW - 18, baselineY + 2);
+        display.print("500Hz");
+
+        // ── PEAK BARS ─────────────────────────────────────────────────────
+        if (flickerResult.valid && flickerResult.peakCount > 0) {
+            for (uint8_t i = 0; i < flickerResult.peakCount; i++) {
+                float freq = flickerResult.peaks[i];
+                float mag  = flickerResult.magnitudes[i];
+
+                if (freq < 1.0f || freq > freqMax) continue;
+
+                // x position — center of bar
+                int xPos = chartX + (int)(freq / freqMax * (chartW - 1));
+
+                // bar height — minimum 3px so weak peaks are still visible
+                int barH = max(3, (int)(mag * chartH));
+
+                // draw 3px wide bar (xPos-1 to xPos+1) for visibility
+                int x0 = max(chartX, xPos - 1);
+                int x1 = min(chartX + chartW - 1, xPos + 1);
+                display.fillRect(x0, baselineY - barH, x1 - x0 + 1, barH, SSD1306_WHITE);
+
+                // label the bar with its frequency if there's room
+                // only label if bar is tall enough and not too close to edge
+                if (barH > 12 && xPos > chartX + 4 && xPos < chartX + chartW - 20) {
+                    display.setCursor(xPos - 6, baselineY - barH - 8);
+                    display.print((int)round(freq));
+                }
+            }
+        }
+
+        break;
+      };
+
       default:
         break;
       }

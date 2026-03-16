@@ -2,6 +2,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include "shared/I2CBus.h"
+#include "BLETask.h"          
 
 // Task handle
 TaskHandle_t UV_TaskHandle = nullptr;
@@ -113,8 +114,10 @@ void UVsensorTask(void *pvParameters) {
 
       addUVReading(uva, uvb, uvc);
 
-      //Serial.println("UV data read and stored");
-      //printLatestUV();
+      // Notify BLE immediately — don't wait for the 1s polling loop
+      if (NimBLEDevice::getServer()->getConnectedCount() > 0) {
+          updateUVCharacteristic();
+      }
 
     } else {
       Serial.println("AS7331 read: mutex timeout");
